@@ -82,6 +82,8 @@ kit -r
 
 Programming assistant with enhanced code understanding:
 
+![alt text](image.png)
+
 ```bash
 kit -c
 ```
