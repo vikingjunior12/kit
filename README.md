@@ -28,12 +28,28 @@ A powerful command-line interface for interacting with OpenAI's GPT models, desi
 
 ## Installation
 
-### Prerequisites
+### Option 1: Prebuilt Binary (Recommended)
+
+Download the latest prebuilt binary from the [Releases](https://github.com/vikingjunior12/kit/releases) page.
+
+```bash
+# Linux/macOS
+wget https://github.com/vikingjunior12/kit/releases/latest/download/kit
+chmod +x kit
+sudo mv kit /usr/local/bin/
+
+# Verify installation
+kit --version
+```
+
+### Option 2: From Source
+
+#### Prerequisites
 
 - Python 3.13 or higher
 - OpenAI API key
 
-### Setup
+#### Setup
 
 1. **Clone or download the repository**
 
@@ -45,13 +61,15 @@ cd /path/to/kit
 
 ```bash
 # Using pip
-pip install openai rich pyperclip
+pip install openai rich prompt_toolkit pyperclip
 
 # Or using Poetry
 poetry install
 ```
 
-3. **Set up your OpenAI API key**
+### API Key Setup (Required)
+
+Set up your OpenAI API key:
 
 ```bash
 export OPENAI_API_KEY='your-api-key-here'
@@ -71,13 +89,13 @@ source ~/.zshrc
 Interactive general-purpose chat:
 
 ```bash
-python kit.py
+kit
 ```
 
 Resume a previous conversation:
 
 ```bash
-python kit.py -r
+kit -r
 ```
 
 ### Codex Mode
@@ -85,19 +103,19 @@ python kit.py -r
 Programming assistant with enhanced code understanding:
 
 ```bash
-python kit.py -c
+kit -c
 ```
 
 One-shot coding query:
 
 ```bash
-python kit.py -c "How do I implement binary search in Python?"
+kit -c "How do I implement binary search in Python?"
 ```
 
 Resume previous coding session:
 
 ```bash
-python kit.py -c -r
+kit -c -r
 ```
 
 ### Web Search
@@ -105,13 +123,13 @@ python kit.py -c -r
 Search the internet using GPT with web search capabilities:
 
 ```bash
-python kit.py -w
+kit -w
 ```
 
 Resume web search conversation:
 
 ```bash
-python kit.py -w -r
+kit -w -r
 ```
 
 ### IT Security News
@@ -119,7 +137,7 @@ python kit.py -w -r
 Get the latest IT security vulnerabilities and news with curated web search:
 
 ```bash
-python kit.py -it
+kit -it
 ```
 
 **How it works:**
@@ -148,10 +166,10 @@ Translate between German and English:
 
 ```bash
 # From clipboard
-python kit.py -t
+kit -t
 
 # Direct text
-python kit.py -t "Translate this text"
+kit -t "Translate this text"
 ```
 
 ### Mail Proofreader
@@ -160,10 +178,10 @@ Proofread and improve email text:
 
 ```bash
 # From clipboard
-python kit.py -m
+kit -m
 
 # Direct text
-python kit.py -m "Check this email text"
+kit -m "Check this email text"
 ```
 
 ### Configuration Reset
@@ -171,7 +189,7 @@ python kit.py -m "Check this email text"
 Reset configuration to defaults:
 
 ```bash
-python kit.py -i
+kit -i
 ```
 
 ## Configuration
@@ -192,17 +210,17 @@ Technical settings like model selection, temperature, and token limits:
 - Codex: `gpt-5.1-codex`
 - Web Search: `gpt-5.1`
 - IT Security: `gpt-5.1`
-- Email: `gpt-4.1`
-- Translation: `gpt-4.1`
+- Email: `gpt-5.1`
+- Translation: `gpt-5.1`
 
 **Edit config:**
 ```bash
-python kit.py --setup
+kit --setup
 ```
 
 **Reset to defaults:**
 ```bash
-python kit.py -i
+kit -i
 ```
 
 ### AI Instructions (`~/.config/KIterminal/instructions/`)
@@ -220,9 +238,9 @@ Each mode has its own instruction file that defines the AI's behavior, tone, and
 **Edit instructions:**
 ```bash
 # Edit specific mode instructions
-python kit.py -e normalchat
-python kit.py -e codex
-python kit.py -e websearch
+kit -e normalchat
+kit -e codex
+kit -e websearch
 
 # Or edit manually
 nano ~/.config/KIterminal/instructions/normalchat.txt
@@ -258,7 +276,7 @@ Edit `~/.config/KIterminal/config.json`:
 
 Or use the config editor:
 ```bash
-python kit.py -s
+kit -s
 # Change "language": "en" to your preferred language
 ```
 
@@ -292,24 +310,24 @@ Chat histories are saved automatically in `~/.config/KIterminal/KITchats/`.
 
 **Quick code review:**
 ```bash
-python kit.py -c "Review this function for bugs: def calc(x,y): return x/y"
+kit -c "Review this function for bugs: def calc(x,y): return x/y"
 ```
 
 **Translate from clipboard:**
 ```bash
 # Copy German text to clipboard, then:
-python kit.py -t
+kit -t
 ```
 
 **Security research:**
 ```bash
-python kit.py -it
+kit -it
 # Returns latest CVEs, patches, and security advisories
 ```
 
 **Interactive coding session:**
 ```bash
-python kit.py -c
+kit -c
 # Type 'exit' to quit
 ```
 
@@ -328,14 +346,6 @@ Each mode has:
 - Configurable model selection
 - Adjustable verbosity and reasoning effort
 - Mode-specific parameters (temperature, tokens, etc.)
-
-### Error Handling
-
-Kit includes robust error handling for:
-- API authentication failures
-- Network connection issues
-- Rate limiting
-- Invalid API responses
 
 ## Platform Support
 
@@ -368,7 +378,7 @@ Error: OPENAI_API_KEY environment variable not set!
 ```
 ModuleNotFoundError: No module named 'openai'
 ```
-→ Install dependencies: `pip install openai rich pyperclip`
+→ Install dependencies: `pip install openai rich prompt_toolkit pyperclip`
 
 **Clipboard Issues (Linux):**
 → Install xclip: `sudo apt install xclip`
