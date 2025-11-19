@@ -28,7 +28,11 @@ A powerful command-line interface for interacting with OpenAI's GPT models, desi
 
 ## Installation
 
-### Option 1: Prebuilt Binary (Recommended)
+### Prebuilt Binary (Recommended)
+
+#### Prerequisites
+
+- OpenAI API key
 
 Download the latest prebuilt binary from the [Releases](https://github.com/vikingjunior12/kit/releases) page.
 
@@ -42,30 +46,6 @@ sudo mv kit /usr/local/bin/
 kit --version
 ```
 
-### Option 2: From Source
-
-#### Prerequisites
-
-- Python 3.13 or higher
-- OpenAI API key
-
-#### Setup
-
-1. **Clone or download the repository**
-
-```bash
-cd /path/to/kit
-```
-
-2. **Install dependencies**
-
-```bash
-# Using pip
-pip install openai rich prompt_toolkit pyperclip
-
-# Or using Poetry
-poetry install
-```
 
 ### API Key Setup (Required)
 
