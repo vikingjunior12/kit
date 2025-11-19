@@ -1,6 +1,6 @@
 # Kit - AI Terminal Assistant
 
-A powerful command-line interface for interacting with OpenAI's GPT models, designed for developers who prefer working in the terminal. Kit provides multiple specialized chat modes, clipboard integration, and conversation persistence.
+A Simpel command-line interface for interacting with OpenAI's GPT models, designed for developers who prefer working in the terminal. Kit provides multiple specialized chat modes, clipboard integration, and conversation persistence. 
 
 ## Features
 
@@ -9,9 +9,8 @@ A powerful command-line interface for interacting with OpenAI's GPT models, desi
   - Codex - Programming assistant with enhanced coding capabilities
   - Web Search - Internet-connected GPT with real-time information
   - IT Security News - Specialized security vulnerability tracker
-  - Mail Proofreader - Email text correction and improvement
-  - Translator - German ↔ English translation
-
+  - Mail Proofreader - Email text correction and improvement, clipboard support
+   - Translator - Simpel translation from clipboard or direct input
 - 💬 **Chat History**
   - Save and resume conversations
   - Persistent chat sessions across modes
@@ -144,7 +143,7 @@ Edit `~/.config/KIterminal/config.json`:
 
 ### Translation
 
-Translate between German and English:
+Translate text between languages:
 
 ```bash
 # From clipboard
