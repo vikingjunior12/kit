@@ -1,0 +1,34 @@
+# Claude Code project docs
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# PyInstaller
+*.spec
+
+# IDE
+.idea/
+.vscode/
+
+# Claude Code
+.claude/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Poetry
+poetry.lock
+
+# OS
+.DS_Store
+Thumbs.db
