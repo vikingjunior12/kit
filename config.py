@@ -199,7 +199,7 @@ config_default = {
     "reasoning_effort": {
         "default": "none",
         "normalchat": "none",
-        "Websearch": "medium",
+        "Websearch": "low",
         "ITSecurty_Websearch": "medium",
         "email": "none",
         "codex": "low",
@@ -275,5 +275,4 @@ def init_config():
     save_default_instructions()
 
 
-# config["GPTModell"]  # ✅ so bekommst du den inhalt raus
 

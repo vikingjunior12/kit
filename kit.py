@@ -17,7 +17,7 @@ import chat_history as ch  # For accessing current_chat_file
 import openai
 
 AUTHOR = "JLI-Software"
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 LICENSE = "MIT"
 OPENAI_VERSION = openai.__version__
 DESCRIPTION = "KIterminal - 🤖 AI-powered CLI assistant with multiple modes for chat, coding, translation, and more."
@@ -291,7 +291,7 @@ def copyline(text: str):
             subprocess.run(["termux-clipboard-set"], input=text.encode(), check=True)
         elif is_wsl():
             # WSL: Use Windows clip.exe
-            subprocess.run(["clip.exe"], input=text.encode('utf-16le'), check=True)
+            subprocess.run(["clip.exe"], input=text.encode(), check=True)
         else:
             pyperclip.copy(text)
     except subprocess.CalledProcessError:
@@ -418,13 +418,14 @@ def Websearch(userfrage):
 
 def ITSecurty_Websearch():
     model = config["ITSecurty_Websearch"]
+    reasoning_effort = config["reasoning_effort"]["Websearch"]
     securityNewsPromt = config["securityNewsPromt"]
 
     try:
         with console.status(f"[bold green]{model} is Thinking...") as status:
             response = client.responses.create(
                 model=model,
-                reasoning={"effort": "low"},
+                reasoning={"effort": reasoning_effort},
                 instructions=config["instructions"]["ITSecurityNews"],
                 tools=[
                     {
