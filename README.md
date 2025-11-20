@@ -24,6 +24,8 @@ A Simpel command-line interface for interacting with OpenAI's GPT models, design
   - Markdown rendering in terminal
   - Color-coded responses
   - Clean, readable output formatting
+  
+![alt text](image-1.png)
 
 ## Installation
 
