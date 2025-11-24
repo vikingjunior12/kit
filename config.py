@@ -33,7 +33,7 @@ def load_instruction(filename, language="en"):
 
     # Language prefixes - automatically prepended to instructions
     language_prefixes = {
-        "en": "",  # No prefix for English (default)
+        "en": "IMPORTANT: Always respond in English.\n\n",
         "de": "IMPORTANT: Always respond in German (Swiss High German without ß).\n\n",
         "fr": "IMPORTANT: Always respond in French.\n\n",
         "es": "IMPORTANT: Always respond in Spanish.\n\n",

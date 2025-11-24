@@ -193,8 +193,12 @@ def list_saved_chats(mode=None):
                     ""  # Fallback: Leerer String falls keine User-Nachricht gefunden
                 )
 
+                # Entferne Zeilenumbrüche und mehrfache Leerzeichen für einzeilige Vorschau
+                # Dies ist wichtig für piped input, das oft mehrzeilig ist
+                preview_clean = " ".join(first_user_msg.split())
+                
                 # Kürze die Vorschau auf 60 Zeichen
-                preview = first_user_msg[:60] + "..." if len(first_user_msg) > 60 else first_user_msg
+                preview = preview_clean[:60] + "..." if len(preview_clean) > 60 else preview_clean
 
                 # Füge Chat-Info zur Liste hinzu
                 chats.append({
@@ -249,8 +253,16 @@ def show_chat_selection_menu(mode):
 
     # Zeige jeden Chat als nummerierte Option
     for idx, chat in enumerate(chats, 1):  # Start bei 1 (nicht 0)
-        # Formatiere Timestamp für Anzeige: "2025:11:16 14:30:15"
-        timestamp_display = chat["timestamp"].replace("_", " ").replace("-", ":")
+        # Formatiere Timestamp für Anzeige: "2025:11:24 14:06:38"
+        # Format: YYYY-MM-DD_HH-MM-SS → YYYY:MM:DD HH:MM:SS
+        timestamp_parts = chat["timestamp"].split("_")  # Split date and time
+        if len(timestamp_parts) == 2:
+            date_part = timestamp_parts[0].replace("-", ":")  # 2025-11-24 → 2025:11:24
+            time_part = timestamp_parts[1].replace("-", ":")  # 14-06-38 → 14:06:38
+            timestamp_display = f"{date_part} {time_part}"
+        else:
+            # Fallback for unexpected format
+            timestamp_display = chat["timestamp"]
 
         # Zeige: Nummer, Timestamp, Vorschau, Anzahl Nachrichten
         console.print(

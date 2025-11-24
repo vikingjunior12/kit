@@ -17,7 +17,7 @@ import chat_history as ch  # For accessing current_chat_file
 import openai
 
 AUTHOR = "JLI-Software"
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 LICENSE = "MIT"
 OPENAI_VERSION = openai.__version__
 DESCRIPTION = "KIterminal - 🤖 AI-powered CLI assistant with multiple modes for chat, coding, translation, and more."
@@ -31,12 +31,21 @@ Examples:
   kit -c                   Start Codex programming assistant
   kit -c "explain this"    Ask Codex a quick question
   kit -w                   Start web search mode
+  kit -w "search query"    Ask web search a quick question
   kit -m                   Proofread email from clipboard
+  kit -m "text"            Proofread provided text
   kit -t "Hello World"     Translate text
   kit -r -w                Resume previous web search chat
   kit --setup              Open configuration file
   kit -e codex             Edit instructions for codex mode
   kit --version            Show version information
+
+Piped Input:
+  cat file.txt | kit "Summarize this"      Pipe file to normal chat
+  cat script.py | kit -c "Explain this"    Pipe code to Codex
+  cat log.txt | kit -w "Find errors"       Pipe file to web search
+  cat email.txt | kit -m "Proofread"       Pipe text for email correction
+  cat doc.txt | kit -t "Translate to DE"   Pipe text for translation
 
 
 Customization:
@@ -72,8 +81,10 @@ ai_modes.add_argument(
 ai_modes.add_argument(
     "-w",
     "--Websearch",
-    action="store_true",
-    help="Search the internet using GPT with web search capabilities",
+    nargs="?",
+    const=True,
+    metavar="TEXT",
+    help="Search the internet using GPT with web search capabilities or ask a quick question",
 )
 ai_modes.add_argument(
     "-it",
@@ -138,6 +149,14 @@ info_grp.add_argument(
     "--version",
     action="store_true",
     help="Show version, author, license, and OpenAI library version",
+)
+
+# Positional argument for question (used with piped input)
+parser.add_argument(
+    "question",
+    nargs="?",
+    default=None,
+    help="Question to ask (required when piping input via stdin)",
 )
 
 args = parser.parse_args()
@@ -216,6 +235,32 @@ def edit_instructions(mode):
 def is_termux():
     """Check if running in Termux environment."""
     return os.path.exists('/data/data/com.termux')
+
+
+def read_stdin():
+    """Read piped input from stdin if available."""
+    if sys.stdin.isatty():
+        return None
+    return sys.stdin.read().strip()
+
+
+def reopen_stdin_to_terminal():
+    """Reopen stdin to terminal after reading piped input.
+    
+    Returns:
+        bool: True if successful, False if not possible (non-interactive environment)
+    """
+    try:
+        if currentOS == "Windows" and not is_wsl():
+            # Windows native: Use CON device
+            sys.stdin = open('CON', 'r')
+        else:
+            # Linux/macOS/WSL/Termux: Use /dev/tty
+            sys.stdin = open('/dev/tty', 'r')
+        return True
+    except (OSError, FileNotFoundError, PermissionError):
+        # Non-interactive environment (CI/CD, cron, etc.) or /dev/tty not available
+        return False
 
 
 def is_wsl():
@@ -342,8 +387,15 @@ def convert_to_responses_format(chat_history):
     return input_messages
 
 
-def interactive_chat(turn_handler, mode=None, resume_chat=False):
-    """Interactive chat with optional resume and auto-save functionality."""
+def interactive_chat(turn_handler, mode=None, resume_chat=False, initial_message=None):
+    """Interactive chat with optional resume and auto-save functionality.
+
+    Args:
+        turn_handler: Function to handle each chat turn
+        mode: Chat mode for saving (normalchat, websearch, codex)
+        resume_chat: Whether to resume a previous chat
+        initial_message: Optional first message to send before entering interactive mode
+    """
     global chat_history
 
     # Handle resume functionality
@@ -369,6 +421,19 @@ def interactive_chat(turn_handler, mode=None, resume_chat=False):
         chat_history.clear()
 
     try:
+        # Process initial message if provided (e.g., from piped stdin)
+        if initial_message:
+            console.print(f"[dim]📎 Processing piped input...[/dim]")
+            turn_handler(initial_message)
+            
+            # Try to reopen stdin to terminal for interactive mode
+            if not reopen_stdin_to_terminal():
+                # Can't go interactive (non-interactive environment or Windows native)
+                console.print("[dim]💡 Tip: Use -r to resume this chat later[/dim]")
+                return
+            
+            console.print("[dim]💬 Interactive mode enabled - you can ask follow-up questions[/dim]")
+
         while True:
             userfrage = get_user_input()
             if userfrage.lower() == "exit":
@@ -534,7 +599,43 @@ def codex(userfrage):
         chat_history.pop()
 
 
+def build_piped_message(question, stdin_content):
+    """Build a combined message from question and piped stdin content."""
+    return f"{question}\n\n```\n{stdin_content}\n```"
+
+
 def main():
+    # Read stdin if piped
+    stdin_content = read_stdin()
+
+    # Determine the question from various sources
+    # Priority: positional argument > mode argument (e.g., -c "question")
+    question = args.question
+    if not question and isinstance(args.codex, str):
+        question = args.codex
+    if not question and isinstance(args.Websearch, str):
+        question = args.Websearch
+    if not question and isinstance(args.Mail, str):
+        question = args.Mail
+    if not question and isinstance(args.Translate, str):
+        question = args.Translate
+
+    # Validate: stdin requires a question for interactive modes (chat/codex/websearch)
+    # But Mail/Translate can work with stdin alone (one-shot modes)
+    if stdin_content and not question:
+        # Allow stdin without question for Mail and Translate
+        if not (args.Mail or args.Translate):
+            console.print("[red]❌ Error: When piping input, a question is required![/red]")
+            console.print("[yellow]Usage: cat file.txt | kit \"Your question here\"[/yellow]")
+            console.print("[yellow]       cat file.py | kit -c \"Explain this code\"[/yellow]")
+            console.print("[yellow]Note: Mail and Translate modes can use stdin without a question[/yellow]")
+            sys.exit(1)
+
+    # Build initial message if stdin + question provided
+    initial_message = None
+    if stdin_content and question:
+        initial_message = build_piped_message(question, stdin_content)
+
     if args.init:
         control = input("Reset configuration file to defaults? (y/n): ").lower()
         if control == "y":
@@ -550,26 +651,51 @@ def main():
         sys.exit(0)
 
     elif args.Websearch:
-        interactive_chat(Websearch, mode="Websearch", resume_chat=args.resume)
-
-
+        if isinstance(args.Websearch, str) and not stdin_content:
+            # One-shot websearch without stdin
+            Websearch(args.Websearch)
+        else:
+            # Interactive mode (with or without initial piped message)
+            interactive_chat(Websearch, mode="Websearch", resume_chat=args.resume, initial_message=initial_message)
 
     elif args.Mail:
         if isinstance(args.Mail, str):
-            # User provided text
+            # User provided text directly
             mailkoregierer(args.Mail)
+        elif stdin_content:
+            # Use piped stdin content
+            if question:
+                # Combine question with stdin content
+                combined_message = build_piped_message(question, stdin_content)
+                console.print("[green]✓ Processing piped input[/green]")
+                mailkoregierer(combined_message)
+            else:
+                # Just stdin without question
+                console.print("[green]✓ Processing piped input[/green]")
+                mailkoregierer(stdin_content)
         else:
-            # args.Mail is True → Use clipboard
+            # Fallback to clipboard
             userfrage = pasteline()
             console.print("[green]✓ Clipboard read successfully[/green]")
             mailkoregierer(userfrage)
 
     elif args.Translate:
         if isinstance(args.Translate, str):
-            # User provided text
+            # User provided text directly
             translate(args.Translate)
+        elif stdin_content:
+            # Use piped stdin content
+            if question:
+                # Combine question with stdin content
+                combined_message = build_piped_message(question, stdin_content)
+                console.print("[green]✓ Processing piped input[/green]")
+                translate(combined_message)
+            else:
+                # Just stdin without question
+                console.print("[green]✓ Processing piped input[/green]")
+                translate(stdin_content)
         else:
-            # args.Translate is True → Use clipboard
+            # Fallback to clipboard
             userfrage = pasteline()
             console.print("[green]✓ Clipboard read successfully[/green]")
             translate(userfrage)
@@ -587,15 +713,18 @@ def main():
         console.print(f"[bold cyan]📜 License:[/bold cyan] [blue]{LICENSE}[/blue]")
         console.print(f"[bold cyan]💻 OpenAI Library:[/bold cyan] [magenta]{OPENAI_VERSION}[/magenta]")
         console.print(f"[bold cyan]🖥️ Description:[/bold cyan] [magenta]{DESCRIPTION}[/magenta]")
+
     elif args.codex:
-        if isinstance(args.codex, str):
+        if isinstance(args.codex, str) and not stdin_content:
+            # One-shot codex without stdin
             codex(args.codex)
         else:
-            interactive_chat(codex, mode="codex", resume_chat=args.resume)
+            # Interactive mode (with or without initial piped message)
+            interactive_chat(codex, mode="codex", resume_chat=args.resume, initial_message=initial_message)
 
-    # If user doesn't provide arguments
+    # If user doesn't provide arguments (or only question with stdin)
     else:
-        interactive_chat(normalchat, mode="normalchat", resume_chat=args.resume)
+        interactive_chat(normalchat, mode="normalchat", resume_chat=args.resume, initial_message=initial_message)
 
 
 if __name__ == "__main__":
