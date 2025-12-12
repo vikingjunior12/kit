@@ -187,13 +187,13 @@ def save_default_instructions():
 config_default = {
     "Version": "1.0",
     "language": "en",  # Response language: "en", "de", "fr", "es", etc.
-    "normalchat": "gpt-5.1", # Standard Modell
-    "Websearch": "gpt-5.1",
+    "normalchat": "gpt-5.2", # Standard Modell
+    "Websearch": "gpt-5.2",
     "Chatpath": "",
-    "ITSecurty_Websearch": "gpt-5.1",
-    "email": "gpt-5.1",
-    "codex": "gpt-5.1-codex",
-    "translate": "gpt-5.1",
+    "ITSecurty_Websearch": "gpt-5.2",
+    "email": "gpt-5.2",
+    "codex": "gpt-5.2-codex",
+    "translate": "gpt-5.2",
     "temperature": 0.7,
     "max_tokens": 1000,
     "reasoning_effort": {
