@@ -17,7 +17,7 @@ import chat_history as ch  # For accessing current_chat_file
 import openai
 
 AUTHOR = "JLI-Software"
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 LICENSE = "MIT"
 OPENAI_VERSION = openai.__version__
 DESCRIPTION = "KIterminal - 🤖 AI-powered CLI assistant with multiple modes for chat, coding, translation, and more."
