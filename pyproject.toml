@@ -1,14 +1,15 @@
 [project]
 name = "kit"
-version = "0.7.1"
-description = "AI CLI Tool"
+version = "0.9.0"
+description = "KIterminal — Schlankes CLI-Tool für KI-Aufgaben. Multi-Provider: Anthropic Claude + DeepSeek V4."
 authors = [
-    {name = "jonas"}
+    {name = "JLI-Software"}
 ]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.13,<3.15"
 dependencies = [
+    "anthropic (>=0.83.0,<0.84.0)"
 ]
 
 
@@ -19,7 +20,6 @@ build-backend = "poetry.core.masonry.api"
 [dependency-groups]
 dev = [
     "pyinstaller (>=6.16.0,<7.0.0)",
-    "openai (>=2.6.0,<3.0.0)",
     "rich (>=14.2.0,<15.0.0)",
     "pyperclip (>=1.11.0,<2.0.0)",
     "prompt-toolkit (>=3.0.52,<4.0.0)"

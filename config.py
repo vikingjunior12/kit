@@ -1,40 +1,48 @@
+"""
+Configuration Management für KIterminal.
+
+Config-Datei: ~/.config/KIterminal/config.json
+Instruction-Files: ~/.config/KIterminal/instructions/*.txt
+
+Neues Format (v2.0) — pro Modus: provider + model + optionale Einstellungen.
+"""
+
 import json
 import os
+import sys
 from pathlib import Path
-from sys import version
 
 home_dir = Path.home()
 config_dir = home_dir / ".config" / "KIterminal"
 instructions_dir = config_dir / "instructions"
 
-# Braucht kein If, da exist_ok=true
 config_dir.mkdir(parents=True, exist_ok=True)
 instructions_dir.mkdir(parents=True, exist_ok=True)
 
 config_file = config_dir / "config.json"
 
 
-def load_instruction(filename, language="en"):
+def load_instruction(filename: str, language: str = "en") -> str:
     """
-    Load instruction from file with automatic language prefix.
+    Lädt eine Instruction-Datei mit automatischem Sprach-Präfix.
 
     Args:
-        filename: Name of the instruction file (e.g., 'normalchat.txt')
-        language: Response language code (e.g., 'en', 'de', 'fr')
+        filename: Name der Instruction-Datei (z.B. 'normalchat.txt')
+        language: Antwort-Sprachcode ('en', 'de', 'chde', 'fr', …)
 
     Returns:
-        str: Content of the instruction file with language prefix, or empty string
+        Inhalt der Instruction-Datei mit Sprach-Präfix, oder Leerstring.
     """
     instruction_file = instructions_dir / filename
     if not instruction_file.exists():
         return ""
 
-    base_instruction = instruction_file.read_text(encoding='utf-8')
+    base_instruction = instruction_file.read_text(encoding="utf-8")
 
-    # Language prefixes - automatically prepended to instructions
     language_prefixes = {
         "en": "IMPORTANT: Always respond in English.\n\n",
-        "de": "IMPORTANT: Always respond in German (Swiss High German without ß).\n\n",
+        "de": "IMPORTANT: Always respond in German.\n\n",
+        "chde": "IMPORTANT: Always respond in Swiss German.\n\n",
         "fr": "IMPORTANT: Always respond in French.\n\n",
         "es": "IMPORTANT: Always respond in Spanish.\n\n",
         "it": "IMPORTANT: Always respond in Italian.\n\n",
@@ -46,9 +54,9 @@ def load_instruction(filename, language="en"):
     return prefix + base_instruction
 
 
-def save_default_instructions():
-    """Create default instruction files if they don't exist."""
-    default_instructions = {
+def save_default_instructions() -> None:
+    """Erstellt Default-Instruction-Dateien, falls sie nicht existieren."""
+    defaults = {
         "normalchat.txt": (
             "Always respond in Markdown format.\n\n"
             "## Completeness & Persistence\n"
@@ -76,49 +84,8 @@ def save_default_instructions():
             "- End with concrete result or next step (when appropriate).\n"
             "- No explicit confirmation questions like 'Does that work?' or 'Is that enough?'.\n"
         ),
-        "websearch.txt": (
-            "Always respond in Markdown format. "
-            "Research focused (default: last 90 days; if 'current' → 30 days). "
-            "Compare publication and event dates, prioritize primary sources/documentation, "
-            "avoid duplicates. Provide 3-6 bullet point summary plus source list with dates. "
-            "Mark controversial/uncertain topics and briefly mention both perspectives. "
-            "Stop when top sources ~70% agree or the question is clearly answered."
-        ),
-        "itsecuritynews.txt": (
-            "Respond in Markdown format. "
-            "Report on security vulnerabilities and patches for common enterprise systems and admin tools. "
-            "Timeframe: max. 10 days. "
-            "For each entry use the following Markdown format (not JSON!):\n\n"
-            "### {title}\n"
-            "- **Date (UTC):** {date_utc}\n"
-            "- **Source:** {source}\n"
-            "- **Link:** {link}\n"
-            "- **CVE / KB:** {cve_ids} / {kb_ids}\n"
-            "- **Affected Versions:** {affected_versions}\n"
-            "- **Severity / Exploit Status:** {severity} / {exploit_status}\n"
-            "- **Risk Summary:** {short_risk}\n"
-            "- **Recommended Actions:** {action}\n"
-            "- **Detection / Hardening:** {detection_hardening}\n\n"
-            "If nothing relevant: 'No critical news in the last 10 days.' "
-            "No filler text, no speculation. "
-            "Always add a blank line between entries. "
-            "Return max 8 entries, most important first. "
-            "Priority: 1️⃣ CISA-Known-Exploited, 2️⃣ CVSS ≥ 8, 3️⃣ all others. "
-            "Be precise and concise (risk 1-2 sentences, action 1 sentence). "
-        ),
-        "email.txt": (
-            "Always respond in Markdown format. "
-            "Improve only style, spelling, punctuation, and clarity "
-            "of the provided email text. Keep voice/tone, don't change facts, "
-            "don't add anything and don't remove anything relevant."
-        ),
-        "translate.txt": (
-            "Always respond in Markdown format. "
-            "Translate the text between German and English (auto-detect source language). "
-            "Provide only the translated text, without explanations or additional content."
-        ),
         "codex.txt": (
-            "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.\n\n"
+            "You are Codex, a coding assistant. You are running as a coding agent in the KIterminal CLI on a user's computer.\n\n"
             "Always respond in Markdown format.\n\n"
             "## System Context\n"
             "- Operating System: {currentOS}\n"
@@ -129,150 +96,213 @@ def save_default_instructions():
             "- When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)\n\n"
             "## Editing constraints\n"
             "- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.\n"
-            "- Add succinct code comments that explain what is going on if code is not self-explanatory. You should not add comments like \"Assigns the value to the variable\", but a brief comment might be useful ahead of a complex code block that the user would otherwise have to spend time parsing out. Usage of these comments should be rare.\n"
+            "- Add succinct code comments that explain what is going on if code is not self-explanatory.\n"
             "- You may be in a dirty git worktree.\n"
-            "    * NEVER revert existing changes you did not make unless explicitly requested, since these changes were made by the user.\n"
-            "    * If asked to make a commit or code edits and there are unrelated changes to your work or changes that you didn't make in those files, don't revert those changes.\n"
-            "    * If the changes are in files you've touched recently, you should read carefully and understand how you can work with the changes rather than reverting them.\n"
+            "    * NEVER revert existing changes you did not make unless explicitly requested.\n"
+            "    * If asked to make a commit or code edits and there are unrelated changes, don't revert those changes.\n"
+            "    * If the changes are in files you've touched recently, read carefully and understand how you can work with the changes rather than reverting them.\n"
             "    * If the changes are in unrelated files, just ignore them and don't revert them.\n"
-            "- While you are working, you might notice unexpected changes that you didn't make. If this happens, STOP IMMEDIATELY and ask the user how they would like to proceed.\n\n"
-            "## Plan tool\n"
-            "When using the planning tool:\n"
-            "- Skip using the planning tool for straightforward tasks (roughly the easiest 25%).\n"
-            "- Do not make single-step plans.\n"
-            "- When you made a plan, update it after having performed one of the sub-tasks that you shared on the plan.\n\n"
+            "- While you are working, you might notice unexpected changes. If this happens, STOP IMMEDIATELY and ask the user how they would like to proceed.\n\n"
             "## Special user requests\n"
             "- If the user makes a simple request (such as asking for the time) which you can fulfill by running a terminal command (such as `date`), you should do so.\n"
-            "- If the user asks for a \"review\", default to a code review mindset: prioritise identifying bugs, risks, behavioural regressions, and missing tests. Findings must be the primary focus of the response - keep summaries or overviews brief and only after enumerating the issues. Present findings first (ordered by severity with file/line references), follow with open questions or assumptions, and offer a change-summary only as a secondary detail. If no findings are discovered, state that explicitly and mention any residual risks or testing gaps.\n\n"
-            "## Presenting your work and final message\n"
-            "You are producing plain text that will later be styled by the CLI. Follow these rules exactly. Formatting should make results easy to scan, but not feel mechanical. Use judgment to decide how much structure adds value.\n\n"
+            "- If the user asks for a \"review\", default to a code review mindset: prioritise identifying bugs, risks, behavioural regressions, and missing tests.\n\n"
+            "## Presenting your work\n"
             "- Default: be very concise; friendly coding teammate tone.\n"
             "- Ask only when needed; suggest ideas; mirror the user's style.\n"
-            "- For substantial work, summarize clearly; follow final-answer formatting.\n"
+            "- For substantial work, summarize clearly.\n"
             "- Skip heavy formatting for simple confirmations.\n"
             "- Don't dump large files you've written; reference paths only.\n"
-            "- No \"save/copy this file\" - User is on the same machine.\n"
-            "- Offer logical next steps (tests, commits, build) briefly; add verify steps if you couldn't do something.\n"
-            "- For code changes:\n"
-            "  * Lead with a quick explanation of the change, and then give more details on the context covering where and why a change was made. Do not start this explanation with \"summary\", just jump right in.\n"
-            "  * If there are natural next steps the user may want to take, suggest them at the end of your response. Do not make suggestions if there are no natural next steps.\n"
-            "  * When suggesting multiple options, use numeric lists for the suggestions so the user can quickly respond with a single number.\n"
-            "- The user does not command execution outputs. When asked to show the output of a command (e.g. `git show`), relay the important details in your answer or summarize the key lines so the user understands the result.\n\n"
-            "### Final answer structure and style guidelines\n"
+            "- Offer logical next steps (tests, commits, build) briefly.\n"
+            "- For code changes: lead with a quick explanation, then more details on where and why.\n"
+            "- When suggesting multiple options, use numeric lists so the user can quickly respond.\n\n"
+            "### Final answer structure\n"
             "- Plain text; CLI handles styling. Use structure only when it helps scanability.\n"
-            "- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.\n"
-            "- Bullets: use - ; merge related points; keep to one line when possible; 4–6 per list ordered by importance; keep phrasing consistent.\n"
-            "- Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.\n"
-            "- Code samples or multi-line snippets should be wrapped in fenced code blocks; add a language hint whenever obvious.\n"
-            "- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.\n"
-            "- Tone: collaborative, concise, factual; present tense, active voice; self-contained; no \"above/below\"; parallel wording.\n"
-            "- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.\n"
-            "- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.\n"
-            "- File References: When referencing files in your response, make sure to include the relevant start line and always follow the below rules:\n"
-            "  * Use inline code to make file paths clickable.\n"
-            "  * Each reference should have a stand alone path. Even if it's the same file.\n"
-            "  * Accepted: absolute, workspace-relative, a/ or b/ diff prefixes, or bare filename/suffix.\n"
-            "  * Line/column (1-based, optional): :line[:column] or #Lline[Ccolumn] (column defaults to 1).\n"
-            "  * Do not use URIs like file://, vscode://, or https://.\n"
-            "  * Do not provide range of lines\n"
-            "  * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\\repo\\project\\main.rs:12:5"
+            "- Headers: optional; short Title Case (1-3 words) wrapped in **…**.\n"
+            "- Bullets: use - ; merge related points; keep to one line when possible.\n"
+            "- Monospace: backticks for commands/paths/env vars/code ids.\n"
+            "- Code samples in fenced code blocks; add a language hint whenever obvious.\n"
+            "- Structure: group related bullets; order sections general → specific → supporting.\n"
+            "- Tone: collaborative, concise, factual; present tense, active voice.\n"
+            "- No nested bullets/hierarchies; no ANSI codes.\n"
+            "- File References: use inline code to make file paths clickable; include line numbers."
+        ),
+        "email.txt": (
+            "Output ONLY the corrected email text — no comments, no explanations, "
+            "no correction lists, no headings, no extra formatting. Just the improved text, nothing else.\n\n"
+            "Improve only style, spelling, punctuation, and clarity. "
+            "Keep the original voice and tone. Do not add or remove content."
+        ),
+        "email_advanced.txt": (
+            "Output ONLY the improved email text — no comments, no explanations, "
+            "no correction lists, no headings, no extra formatting. Just the improved text, nothing else.\n\n"
+            "Improve style, spelling, punctuation, clarity, and content. "
+            "Strengthen weak phrasing, fix logical flow, remove redundancies, and sharpen the message. "
+            "Keep the original intent, voice, and all facts. Do not add or remove relevant content."
+        ),
+        "email_pro.txt": (
+            "Output ONLY the rewritten email text — no comments, no explanations, "
+            "no headings, no extra formatting. Just the improved text, nothing else.\n\n"
+            "Rewrite the email in a professional business tone. Use formal but clear language, "
+            "logical structure, and concise phrasing. Add a clear call to action where appropriate. "
+            "Keep the original intent and all facts. Eliminate informal phrasing, typos, and weak "
+            "formulations. The result should read as polished business communication."
+        ),
+        "translate.txt": (
+            "Always respond in Markdown format. "
+            "Translate the text between German and English (auto-detect source language). "
+            "Provide only the translated text, without explanations or additional content."
         ),
     }
-    
-    for filename, content in default_instructions.items():
+
+    for filename, content in defaults.items():
         filepath = instructions_dir / filename
         if not filepath.exists():
-            filepath.write_text(content, encoding='utf-8')
+            filepath.write_text(content, encoding="utf-8")
+
+
+# ── Default-Konfiguration (v2.0) ──────────────────────────────────────────
 
 config_default = {
-    "Version": "1.0",
-    "language": "en",  # Response language: "en", "de", "fr", "es", etc.
-    "normalchat": "gpt-5.2", # Standard Modell
-    "Websearch": "gpt-5.2",
-    "Chatpath": "",
-    "ITSecurty_Websearch": "gpt-5.2",
-    "email": "gpt-5.2",
-    "codex": "gpt-5.2-codex",
-    "translate": "gpt-5.2",
-    "temperature": 0.7,
-    "max_tokens": 1000,
-    "reasoning_effort": {
-        "default": "none",
-        "normalchat": "none",
-        "Websearch": "low",
-        "ITSecurty_Websearch": "medium",
-        "email": "none",
-        "codex": "low",
-        "translate": "none",
+    "version": "2.0",
+    "language": "de",
+    # Pro Modus: provider, model, max_tokens, reasoning_effort
+    "modes": {
+        "normalchat": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "max_tokens": 4096,
+            "reasoning_effort": "none",
+        },
+        "codex": {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "reasoning_effort": "low",
+        },
+        "email": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "max_tokens": 2048,
+            "reasoning_effort": "none",
+        },
+        "email_advanced": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "max_tokens": 4096,
+            "reasoning_effort": "none",
+        },
+        "email_pro": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "max_tokens": 4096,
+            "reasoning_effort": "none",
+        },
+        "translate": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "max_tokens": 2048,
+            "reasoning_effort": "none",
+        },
     },
-    "securityNewsPromt": (
-        "Research the following topics:"
-        "Exchange OnPrem Zero Day etc"
-        "Windows 11 from 23H2"
-        "Office 365"
-        "EntraID, Intune, Teams, Sharepoint"
-        "Always security"
-    ),
-    "security_domains": [
-        "msrc.microsoft.com",
-        "learn.microsoft.com",
-        "support.microsoft.com",
-        "techcommunity.microsoft.com",
-        "cloudblogs.microsoft.com",
-        # CVE / Scoring / Known Exploited
-        "nvd.nist.gov",
-        "cisa.gov",
-        # Sekundär / News / Analysen
-        "bleepingcomputer.com",
-        "qualys.com",
-        "threatprotect.qualys.com",
-    ],
+    "chat_path": "",  # Leer = Default-Pfad ~/.config/KIterminal/KITchats/
 }
 
 
-# Ensure instruction files exist on import
-save_default_instructions()
+def _migrate_v1_to_v2(old_config: dict) -> dict:
+    """
+    Migriert Config v1.x → v2.0.
 
+    v1 hatte flache Keys wie "normalchat": "claude-sonnet-4-6",
+    v2 hat "modes": {"normalchat": {"provider": "...", "model": "..."}}.
+    """
+    if "modes" in old_config and old_config.get("version") == "2.0":
+        return old_config  # Bereits v2
+
+    # Mode-Namen aus v1
+    mode_map = {
+        "normalchat": "normalchat",
+        "codex": "codex",
+        "email": "email",
+        "email_advanced": "email_advanced",
+        "email_pro": "email_pro",
+        "translate": "translate",
+        # v1-only modes – werden nicht migriert
+        "Websearch": None,
+        "ITSecurty_Websearch": None,
+    }
+
+    modes = {}
+    for old_key, new_key in mode_map.items():
+        if new_key is None:
+            continue
+        model = old_config.get(old_key, config_default["modes"][new_key]["model"])
+        modes[new_key] = {
+            "provider": "anthropic",  # v1 war immer Anthropic
+            "model": model,
+            "max_tokens": config_default["modes"][new_key]["max_tokens"],
+            "reasoning_effort": config_default["modes"][new_key]["reasoning_effort"],
+        }
+
+    return {
+        "version": "2.0",
+        "language": old_config.get("language", "de"),
+        "modes": modes,
+        "chat_path": old_config.get("Chatpath", ""),
+    }
+
+
+# ── Initialisierung ───────────────────────────────────────────────────────
+
+save_default_instructions()
 
 if not config_file.exists():
     with open(config_file, "w") as f:
         json.dump(config_default, f, indent=4)
 
 
-def loadconfig():
+def loadconfig() -> dict:
     """
-    Load configuration from JSON file and instructions from text files.
-    Automatically applies language prefix to all instructions.
-
-    Returns:
-        dict: Configuration with instructions loaded from files
+    Lädt die Konfiguration aus config.json und Instructions aus Text-Dateien.
+    Migriert automatisch von v1 → v2.
     """
     with open(config_file, "r") as f:
         config = json.load(f)
 
-    # Get language setting (default to "en" if not set)
+    # Migration prüfen
+    if config.get("version") != "2.0":
+        config = _migrate_v1_to_v2(config)
+        # Gespeicherte Config aktualisieren
+        with open(config_file, "w") as f:
+            json.dump(config, f, indent=4)
+
     language = config.get("language", "en")
 
-    # Load instructions from separate files (backwards compatible)
+    # Instructions aus Dateien laden
     if "instructions" not in config:
         config["instructions"] = {}
 
-    # Load instructions from separate files with language prefix
     config["instructions"]["normalchat"] = load_instruction("normalchat.txt", language)
-    config["instructions"]["Websearch"] = load_instruction("websearch.txt", language)
-    config["instructions"]["ITSecurityNews"] = load_instruction("itsecuritynews.txt", language)
-    config["instructions"]["email"] = load_instruction("email.txt", language)
-    config["instructions"]["translate"] = load_instruction("translate.txt", language)
     config["instructions"]["codex"] = load_instruction("codex.txt", language)
+    config["instructions"]["email"] = load_instruction("email.txt", language)
+    config["instructions"]["email_advanced"] = load_instruction("email_advanced.txt", language)
+    config["instructions"]["email_pro"] = load_instruction("email_pro.txt", language)
+    config["instructions"]["translate"] = load_instruction("translate.txt", language)
 
     return config
 
 
-def init_config():
-    """Reset configuration file to defaults and ensure instruction files exist."""
+def init_config() -> None:
+    """Setzt die Konfiguration auf Werkseinstellungen zurück."""
     with open(config_file, "w") as f:
         json.dump(config_default, f, indent=4)
     save_default_instructions()
 
 
+def get_mode_config(config: dict, mode: str) -> dict:
+    """
+    Gibt die Konfiguration für einen bestimmten Modus zurück.
 
+    Returns:
+        dict mit keys: provider, model, max_tokens, reasoning_effort
+    """
+    return config["modes"].get(mode, {})

@@ -1,352 +1,246 @@
-from openai import OpenAI, APIError, APIConnectionError, AuthenticationError, RateLimitError
+#!/usr/bin/env python3
+"""
+KIterminal — Ein schlankes Terminal-KI-Tool für schnelle Aufgaben.
+
+Multi-Provider: Anthropic (Claude) + DeepSeek (V4 Flash/Pro)
+Modi: normalchat, codex, mail (-m/-ma/-mp), translate (-t)
+Features: Pipe-Support, Clipboard, Chat-History, Config-Editor
+"""
+
+import anthropic
 import sys
 import argparse
 import platform
 import subprocess
+import os
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Prompt
-from prompt_toolkit import prompt
+from prompt_toolkit import prompt as pt_prompt
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 import pyperclip
-import os
-from config import loadconfig, init_config
+
+from config import loadconfig, init_config, get_mode_config
 from chat_history import save_chat, load_chat, show_chat_selection_menu
-import chat_history as ch  # For accessing current_chat_file
-import openai
+import chat_history as ch
+from providers import get_client, get_provider_name
 
 AUTHOR = "JLI-Software"
-VERSION = "0.7.1"
+VERSION = "0.9.0"
 LICENSE = "MIT"
-OPENAI_VERSION = openai.__version__
-DESCRIPTION = "KIterminal - 🤖 AI-powered CLI assistant with multiple modes for chat, coding, translation, and more."
+ANTHROPIC_VERSION = anthropic.__version__
+DESCRIPTION = (
+    "KIterminal — 🤖 Schlankes KI-CLI-Tool für schnelle Aufgaben. "
+    "Multi-Provider: Anthropic + DeepSeek."
+)
+
+# ── CLI-Parser ────────────────────────────────────────────────────────────
 
 parser = argparse.ArgumentParser(
     prog="kit",
-    description=f"{DESCRIPTION}",
+    description=DESCRIPTION,
     epilog="""
-Examples:
-  kit                      Start normal chat mode
-  kit -c                   Start Codex programming assistant
-  kit -c "explain this"    Ask Codex a quick question
-  kit -w                   Start web search mode
-  kit -w "search query"    Ask web search a quick question
-  kit -m                   Proofread email from clipboard
-  kit -m "text"            Proofread provided text
-  kit -t "Hello World"     Translate text
-  kit -r -w                Resume previous web search chat
-  kit --setup              Open configuration file
-  kit -e codex             Edit instructions for codex mode
-  kit --version            Show version information
+Beispiele:
+  kit                     Normaler Chat (default)
+  kit -c                  Codex Programmier-Assistent
+  kit -c "Frage"          Codex One-Shot
+  kit -m                  E-Mail-Korrektur (aus Clipboard)
+  kit -m "Text"           E-Mail-Korrektur (direkt)
+  kit -ma "Text"          E-Mail-Korrektur + Verbesserung
+  kit -mp "Text"          Professioneller E-Mail-Rewrite
+  kit -t "Hello World"    Übersetzung DE↔EN
+  kit -r                  Chat fortsetzen
+  kit -r -c               Codex-Chat fortsetzen
+  kit --setup             Config bearbeiten
+  kit -e codex            Codex-Instructions bearbeiten
+  kit --version           Version anzeigen
 
 Piped Input:
-  cat file.txt | kit "Summarize this"      Pipe file to normal chat
-  cat script.py | kit -c "Explain this"    Pipe code to Codex
-  cat log.txt | kit -w "Find errors"       Pipe file to web search
-  cat email.txt | kit -m "Proofread"       Pipe text for email correction
-  cat doc.txt | kit -t "Translate to DE"   Pipe text for translation
+  cat file.txt | kit "Zusammenfassen"
+  cat script.py | kit -c "Erklären"
+  cat email.txt | kit -m "Korrigieren"
+  cat doc.txt | kit -t "Übersetzen"
 
+Konfiguration:
+  kit -e normalchat       Chat-Instructions bearbeiten
+  kit -e codex            Codex-Instructions bearbeiten
+  kit -e email            Mail-Instructions bearbeiten
+  kit -e translate        Übersetzungs-Instructions bearbeiten
 
-Customization:
-  Edit AI behavior by customizing instruction files:
-    kit -e normalchat        Edit normal chat instructions
-    kit -e websearch         Edit web search instructions
-    kit -e codex             Edit codex instructions
-    kit -e email             Edit email proofreading instructions
-    kit -e translate         Edit translation instructions
-    kit -e itsecurity        Edit IT security news instructions
+  Instruction-Dateien: ~/.config/KIterminal/instructions/
+  Config-Datei:        ~/.config/KIterminal/config.json
 
-  Instruction files are stored in:
-    ~/.config/KIterminal/instructions/
+Umgebungsvariablen:
+  ANTHROPIC_API_KEY       Anthropic API-Key
+  DEEPSEEK_API_KEY        DeepSeek API-Key
 
-Environment:
-  OPENAI_API_KEY must be set to use this tool.
-  
-For more info: https://github.com/JLI-Software
+Mehr Infos: https://github.com/vikingjunior12/kit
     """,
     formatter_class=argparse.RawDescriptionHelpFormatter,
 )
 
-# AI Modes
-ai_modes = parser.add_argument_group("AI Modes")
+# ── Modi ──────────────────────────────────────────────────────────────────
+
+ai_modes = parser.add_argument_group("KI-Modi")
 ai_modes.add_argument(
-    "-c",
-    "--codex",
-    nargs="?",
-    const=True,
-    metavar="TEXT",
-    help="Start interactive Codex programming assistant or ask a quick coding question",
-)
-ai_modes.add_argument(
-    "-w",
-    "--Websearch",
-    nargs="?",
-    const=True,
-    metavar="TEXT",
-    help="Search the internet using GPT with web search capabilities or ask a quick question",
-)
-ai_modes.add_argument(
-    "-it",
-    "--ITSecurityNews",
-    action="store_true",
-    help="Get latest IT security news (Setup in Config required)",
+    "-c", "--codex",
+    nargs="?", const=True, metavar="TEXT",
+    help="Codex Programmier-Assistent (interaktiv oder One-Shot)",
 )
 
-# Text Processing
-text_proc = parser.add_argument_group("Text Processing")
+# ── Textverarbeitung ──────────────────────────────────────────────────────
+
+text_proc = parser.add_argument_group("Textverarbeitung")
 text_proc.add_argument(
-    "-t",
-    "--Translate",
-    nargs="?",
-    const=True,
-    metavar="TEXT",
-    help="Translate(from clipboard or provided text)",
-)   
+    "-t", "--translate",
+    nargs="?", const=True, metavar="TEXT",
+    help="Übersetzung DE↔EN (Clipboard oder Text)",
+)
 text_proc.add_argument(
-    "-m",
-    "--Mail",
-    nargs="?",
-    const=True,
-    metavar="TEXT",
-    help="Proofread and correct email text (from clipboard or provided text)",
+    "-m", "--mail",
+    nargs="?", const=True, metavar="TEXT",
+    help="E-Mail-Korrektur (Clipboard oder Text)",
+)
+text_proc.add_argument(
+    "-ma", "--mail-advanced",
+    nargs="?", const=True, metavar="TEXT",
+    help="E-Mail-Korrektur + inhaltliche Verbesserung",
+)
+text_proc.add_argument(
+    "-mp", "--mail-pro",
+    nargs="?", const=True, metavar="TEXT",
+    help="Professioneller E-Mail-Rewrite (Business-Ton)",
 )
 
-# Chat Management
-chat_mgmt = parser.add_argument_group("Chat Management")
+# ── Chat-Management ───────────────────────────────────────────────────────
+
+chat_mgmt = parser.add_argument_group("Chat-Management")
 chat_mgmt.add_argument(
-    "-r",
-    "--resume",
+    "-r", "--resume",
     action="store_true",
-    help="Resume a previous chat (works with normal chat, websearch, and codex modes)",
+    help="Vorherigen Chat fortsetzen",
 )
 
-# Configuration
-config_grp = parser.add_argument_group("Configuration")
+# ── Konfiguration ─────────────────────────────────────────────────────────
+
+config_grp = parser.add_argument_group("Konfiguration")
 config_grp.add_argument(
-    "-s",
-    "--setup",
-    action="store_true",
-    help="Open configuration file with default editor",
+    "-s", "--setup", action="store_true",
+    help="Config-Datei mit Editor öffnen",
 )
 config_grp.add_argument(
-    "-i",
-    "--init",
-    action="store_true",
-    help="Reset configuration file to default settings",
+    "-i", "--init", action="store_true",
+    help="Config auf Werkseinstellungen zurücksetzen",
 )
 config_grp.add_argument(
-    "-e",
-    "--edit-instructions",
-    metavar="MODE",
-    help="Edit instruction file for a specific mode (normalchat, websearch, codex, email, translate, itsecurity)",
+    "-e", "--edit-instructions", metavar="MODE",
+    help="Instructions für einen Modus bearbeiten "
+         "(normalchat, codex, email, email-advanced, email-pro, translate)",
 )
 
-# Information
+# ── Info ──────────────────────────────────────────────────────────────────
+
 info_grp = parser.add_argument_group("Information")
 info_grp.add_argument(
-    "-v",
-    "--version",
-    action="store_true",
-    help="Show version, author, license, and OpenAI library version",
+    "-v", "--version", action="store_true",
+    help="Version & Info anzeigen",
 )
 
-# Positional argument for question (used with piped input)
+# Positionales Argument (für Piped-Input + Frage)
 parser.add_argument(
-    "question",
-    nargs="?",
-    default=None,
-    help="Question to ask (required when piping input via stdin)",
+    "question", nargs="?", default=None,
+    help="Frage (erforderlich bei Piped-Input)",
 )
 
 args = parser.parse_args()
 
 
-api_key = os.environ.get("OPENAI_API_KEY")
-if not api_key:
-    print("Error: OPENAI_API_KEY environment variable not set!")
-    print("Set it with: export OPENAI_API_KEY='your-key'")
-    sys.exit(1)
+# ── Umgebung ──────────────────────────────────────────────────────────────
 
-client = OpenAI()
 console = Console()
 currentOS = platform.system()
 platforminfo = platform.platform()
-
-
-def show_setup_file():
-    """Open the setup configuration file with the default editor."""
-    config_file_path = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "config.json")
-    try:
-        if currentOS == "Windows":
-            os.startfile(config_file_path)
-        elif currentOS == "Darwin":  # macOS
-            subprocess.run(["open", config_file_path])
-        else:  # Linux and others
-            if nvim_installed := subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
-                subprocess.run(["nvim", config_file_path])
-            else:
-                subprocess.run(["xdg-open", config_file_path])
-
-    except Exception as e:
-        console.print(f"[red]❌ Error opening configuration file: {str(e)}[/red]")
-
-
-def edit_instructions(mode):
-    """Open an instruction file for a specific mode with the default editor."""
-    instructions_dir = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "instructions")
-
-    # Map mode names to instruction files
-    mode_files = {
-        "normalchat": "normalchat.txt",
-        "websearch": "websearch.txt",
-        "codex": "codex.txt",
-        "email": "email.txt",
-        "translate": "translate.txt",
-        "itsecurity": "itsecuritynews.txt"
-    }
-
-    if mode.lower() not in mode_files:
-        console.print(f"[red]❌ Unknown mode: {mode}[/red]")
-        console.print(f"[yellow]Available modes: {', '.join(mode_files.keys())}[/yellow]")
-        return
-
-    instruction_file = os.path.join(instructions_dir, mode_files[mode.lower()])
-
-    if not os.path.exists(instruction_file):
-        console.print(f"[red]❌ Instruction file not found: {instruction_file}[/red]")
-        return
-
-    try:
-        if currentOS == "Windows":
-            os.startfile(instruction_file)
-        elif currentOS == "Darwin":  # macOS
-            subprocess.run(["open", instruction_file])
-        else:  # Linux and others
-            if subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
-                subprocess.run(["nvim", instruction_file])
-            else:
-                subprocess.run(["xdg-open", instruction_file])
-
-        console.print(f"[green]✓ Instruction file opened: {mode}[/green]")
-    except Exception as e:
-        console.print(f"[red]❌ Error opening instruction file: {str(e)}[/red]")
-
-def is_termux():
-    """Check if running in Termux environment."""
-    return os.path.exists('/data/data/com.termux')
-
-
-def read_stdin():
-    """Read piped input from stdin if available."""
-    if sys.stdin.isatty():
-        return None
-    return sys.stdin.read().strip()
-
-
-def reopen_stdin_to_terminal():
-    """Reopen stdin to terminal after reading piped input.
-    
-    Returns:
-        bool: True if successful, False if not possible (non-interactive environment)
-    """
-    try:
-        if currentOS == "Windows" and not is_wsl():
-            # Windows native: Use CON device
-            sys.stdin = open('CON', 'r')
-        else:
-            # Linux/macOS/WSL/Termux: Use /dev/tty
-            sys.stdin = open('/dev/tty', 'r')
-        return True
-    except (OSError, FileNotFoundError, PermissionError):
-        # Non-interactive environment (CI/CD, cron, etc.) or /dev/tty not available
-        return False
-
-
-def is_wsl():
-    """Check if running in WSL (Windows Subsystem for Linux)."""
-    try:
-        with open('/proc/version', 'r') as f:
-            return 'microsoft' in f.read().lower() or 'wsl' in f.read().lower()
-    except:
-        return False
-
-
-def handle_api_error(e):
-    """Handle OpenAI API errors with user-friendly messages."""
-    if isinstance(e, AuthenticationError):
-        console.print("[red]❌ Error: Invalid API key![/red]")
-        console.print("Please check your OPENAI_API_KEY")
-    elif isinstance(e, APIConnectionError):
-        console.print("[red]❌ Error: No connection to OpenAI API![/red]")
-        console.print("Please check your internet connection")
-    elif isinstance(e, RateLimitError):
-        console.print("[red]❌ Error: Rate limit reached![/red]")
-        console.print("Please wait a moment and try again")
-    elif isinstance(e, APIError):
-        console.print(f"[red]❌ API error: {str(e)}[/red]")
-    else:
-        console.print(f"[red]❌ Unexpected error: {str(e)}[/red]")
-
-
 config = loadconfig()
-# Chat History
-chat_history = []
 
-# Setup prompt_toolkit keybindings
+# Chat-History (in-memory, global)
+chat_history: list[dict] = []
+
+
+# ── Prompt-Toolkit Setup ──────────────────────────────────────────────────
+
 kb = KeyBindings()
 
-@kb.add('enter')
+@kb.add("enter")
 def _(event):
-    """Submit on Enter (single line mode)"""
-    event.current_buffer.validate_and_handle()
-
-@kb.add('escape', 'enter')
-def _(event):
-    """Submit on Esc+Enter (alternative)"""
     event.current_buffer.validate_and_handle()
 
 
-def get_user_input():
-    """
-    Get user input with prompt_toolkit.
-    Features:
-    - Enter: Submit
-    - Esc+Enter: Also submit (alternative)
-    - Ctrl+C: Exit
-    - Multi-line paste support
-    """
+def get_user_input() -> str:
+    """Benutzereingabe mit prompt_toolkit."""
     try:
-        user_input = prompt(
-            HTML('<ansibrightcyan><b>💬 </b></ansibrightcyan>'),
+        return pt_prompt(
+            HTML("<ansibrightcyan><b>💬 </b></ansibrightcyan>"),
             multiline=False,
             key_bindings=kb,
-        )
-        return user_input.strip()
+        ).strip()
     except KeyboardInterrupt:
         raise
     except EOFError:
         return "exit"
 
 
-def copyline(text: str):
-    """Copy text to clipboard with error handling."""
+# ── Plattform-Helfer ─────────────────────────────────────────────────────
+
+def is_termux() -> bool:
+    return os.path.exists("/data/data/com.termux")
+
+
+def is_wsl() -> bool:
+    try:
+        with open("/proc/version") as f:
+            content = f.read().lower()
+            return "microsoft" in content or "wsl" in content
+    except Exception:
+        return False
+
+
+def read_stdin() -> str | None:
+    """Liest Piped-Input von stdin, falls vorhanden."""
+    if sys.stdin.isatty():
+        return None
+    return sys.stdin.read().strip()
+
+
+def reopen_stdin_to_terminal() -> bool:
+    """Öffnet stdin neu zum Terminal (nach Piped-Input)."""
+    try:
+        if currentOS == "Windows" and not is_wsl():
+            sys.stdin = open("CON", "r")
+        else:
+            sys.stdin = open("/dev/tty", "r")
+        return True
+    except (OSError, FileNotFoundError, PermissionError):
+        return False
+
+
+# ── Clipboard ─────────────────────────────────────────────────────────────
+
+def copyline(text: str) -> None:
+    """Text ins Clipboard kopieren."""
     try:
         if is_termux():
             subprocess.run(["termux-clipboard-set"], input=text.encode(), check=True)
         elif is_wsl():
-            # WSL: Use Windows clip.exe
             subprocess.run(["clip.exe"], input=text.encode(), check=True)
         else:
             pyperclip.copy(text)
-    except subprocess.CalledProcessError:
-        console.print("[yellow]⚠️  Warning: Could not copy to clipboard[/yellow]")
-    except Exception as e:
-        console.print(f"[yellow]⚠️  Warning: Clipboard error: {str(e)}[/yellow]")
+    except Exception:
+        pass  # Silent fail — Clipboard ist optional
 
 
-def pasteline():
-    """Paste text from clipboard with error handling."""
+def pasteline() -> str:
+    """Text aus Clipboard lesen."""
     try:
         if is_termux():
             result = subprocess.run(
@@ -354,389 +248,393 @@ def pasteline():
             )
             return result.stdout
         elif is_wsl():
-            # WSL: Use PowerShell Get-Clipboard
             result = subprocess.run(
                 ["powershell.exe", "-command", "Get-Clipboard"],
-                capture_output=True,
-                text=True,
-                check=True
+                capture_output=True, text=True, check=True,
             )
             return result.stdout.strip()
         else:
-            result = pyperclip.paste()
-            return result
-    except subprocess.CalledProcessError:
-        console.print("[red]❌ Error: Could not read from clipboard[/red]")
-        sys.exit(1)
+            return pyperclip.paste()
     except Exception as e:
-        console.print(f"[red]❌ Clipboard error: {str(e)}[/red]")
+        console.print(f"[red]❌ Clipboard-Fehler: {e}[/red]")
         sys.exit(1)
 
 
-def convert_to_responses_format(chat_history):
-    """Convert chat history to OpenAI Responses API format."""
-    input_messages = []
-    for m in chat_history:
-        role = m["role"]
-        text = m["content"]
-        if role == "assistant":
-            parts = [{"type": "output_text", "text": text}]
-        else:  # user
-            parts = [{"type": "input_text", "text": text}]
-        input_messages.append({"role": role, "content": parts})
-    return input_messages
+# ── API-Helfer ────────────────────────────────────────────────────────────
+
+def handle_api_error(e: Exception) -> None:
+    """Benutzerfreundliche Fehlermeldungen für API-Fehler."""
+    if isinstance(e, anthropic.AuthenticationError):
+        console.print("[red]❌ Ungültiger API-Key![/red]")
+        console.print("Bitte prüfe deine Umgebungsvariable (ANTHROPIC_API_KEY / DEEPSEEK_API_KEY)")
+    elif isinstance(e, anthropic.APIConnectionError):
+        console.print("[red]❌ Keine Verbindung zur API![/red]")
+        console.print("Bitte prüfe deine Internetverbindung.")
+    elif isinstance(e, anthropic.RateLimitError):
+        console.print("[red]❌ Rate-Limit erreicht![/red]")
+        console.print("Bitte warte einen Moment.")
+    elif isinstance(e, anthropic.APIStatusError):
+        console.print(f"[red]❌ API-Fehler {e.status_code}: {e}[/red]")
+    else:
+        console.print(f"[red]❌ Unerwarteter Fehler: {e}[/red]")
 
 
-def interactive_chat(turn_handler, mode=None, resume_chat=False, initial_message=None):
-    """Interactive chat with optional resume and auto-save functionality.
+def get_response_text(response) -> str:
+    """Extrahiert Text aus einer Anthropic-Response."""
+    if response.stop_reason == "refusal":
+        console.print("[yellow]⚠ Die KI hat die Anfrage abgelehnt.[/yellow]")
+        return ""
+    text_blocks = [block.text for block in response.content if block.type == "text"]
+    return "\n\n".join(text_blocks) if text_blocks else ""
+
+
+def build_effort_params(reasoning_effort: str) -> dict:
+    """Erstellt thinking/output_config-Parameter für Adaptive Thinking."""
+    if reasoning_effort in ("low", "medium", "high"):
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": reasoning_effort},
+        }
+    return {}
+
+
+def build_piped_message(question: str, stdin_content: str) -> str:
+    """Kombiniert Frage mit Piped-Input."""
+    return f"{question}\n\n```\n{stdin_content}\n```"
+
+
+# ── Chat-Funktionen ───────────────────────────────────────────────────────
+
+def _call_api(mode: str, messages: list[dict], system: str) -> str:
+    """
+    Führt einen API-Call für den angegebenen Modus aus.
+
+    Nutzt den in der Config eingestellten Provider + Modell.
+    """
+    mode_cfg = get_mode_config(config, mode)
+    provider = mode_cfg.get("provider", "anthropic")
+    model = mode_cfg.get("model", "claude-sonnet-4-6")
+    max_tokens = mode_cfg.get("max_tokens", 4096)
+    reasoning_effort = mode_cfg.get("reasoning_effort", "none")
+
+    client = get_client(provider)
+
+    params = dict(
+        model=model,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+        **build_effort_params(reasoning_effort),
+    )
+
+    status_text = f"[bold green]{get_provider_name(provider)}/{model} denkt nach..."
+    with console.status(status_text):
+        response = client.messages.create(**params)
+
+    return get_response_text(response)
+
+
+def normalchat(userfrage: str) -> None:
+    """Normaler Chat-Modus (interaktiv)."""
+    chat_history.append({"role": "user", "content": userfrage})
+
+    try:
+        response_text = _call_api(
+            "normalchat",
+            messages=chat_history,
+            system=config["instructions"]["normalchat"],
+        )
+        chat_history.append({"role": "assistant", "content": response_text})
+        copyline(response_text)
+        console.print(Markdown(response_text))
+    except (anthropic.APIConnectionError, anthropic.AuthenticationError,
+            anthropic.RateLimitError, anthropic.APIStatusError) as e:
+        handle_api_error(e)
+        chat_history.pop()
+
+
+def codex(userfrage: str) -> None:
+    """Codex Programmier-Assistent (interaktiv)."""
+    instruction = config["instructions"]["codex"].format(
+        currentOS=currentOS, platforminfo=platforminfo
+    )
+    chat_history.append({"role": "user", "content": userfrage})
+
+    try:
+        response_text = _call_api(
+            "codex",
+            messages=chat_history,
+            system=instruction,
+        )
+        chat_history.append({"role": "assistant", "content": response_text})
+        copyline(response_text)
+        console.print(Markdown(response_text))
+    except (anthropic.APIConnectionError, anthropic.AuthenticationError,
+            anthropic.RateLimitError, anthropic.APIStatusError) as e:
+        handle_api_error(e)
+        chat_history.pop()
+
+
+def mail_correct(userfrage: str, mode: str = "email") -> None:
+    """E-Mail-Korrektur (One-Shot)."""
+    try:
+        response_text = _call_api(
+            mode,
+            messages=[{"role": "user", "content": f"Proofread and correct this email:\n\n{userfrage}"}],
+            system=config["instructions"][mode],
+        )
+        copyline(response_text)
+        print(response_text)
+    except (anthropic.APIConnectionError, anthropic.AuthenticationError,
+            anthropic.RateLimitError, anthropic.APIStatusError) as e:
+        handle_api_error(e)
+
+
+def _run_mail(mode: str, args_flag, stdin_content: str | None, question: str | None) -> None:
+    """Gemeinsame Routing-Logik für alle Mail-Modi (-m, -ma, -mp)."""
+    if isinstance(args_flag, str):
+        mail_correct(args_flag, mode=mode)
+    elif stdin_content:
+        content = build_piped_message(question, stdin_content) if question else stdin_content
+        console.print("[green]✓ Piped-Input wird verarbeitet[/green]")
+        mail_correct(content, mode=mode)
+    else:
+        text = pasteline()
+        console.print("[green]✓ Aus Clipboard gelesen[/green]")
+        mail_correct(text, mode=mode)
+
+
+def translate(userfrage: str) -> None:
+    """Übersetzung DE↔EN (One-Shot)."""
+    try:
+        response_text = _call_api(
+            "translate",
+            messages=[{"role": "user", "content": f"Translate this text:\n\n{userfrage}"}],
+            system=config["instructions"]["translate"],
+        )
+        copyline(response_text)
+        print(response_text)
+    except (anthropic.APIConnectionError, anthropic.AuthenticationError,
+            anthropic.RateLimitError, anthropic.APIStatusError) as e:
+        handle_api_error(e)
+
+
+# ── Interaktiver Chat-Loop ────────────────────────────────────────────────
+
+def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
+                     initial_message: str = None) -> None:
+    """
+    Interaktiver Chat mit Resume- und Auto-Save-Funktionalität.
 
     Args:
-        turn_handler: Function to handle each chat turn
-        mode: Chat mode for saving (normalchat, websearch, codex)
-        resume_chat: Whether to resume a previous chat
-        initial_message: Optional first message to send before entering interactive mode
+        turn_handler: Funktion für jeden Chat-Turn (normalchat/codex)
+        mode: Chat-Modus für Speicherung (normalchat, codex)
+        resume_chat: Vorherigen Chat fortsetzen?
+        initial_message: Optionale erste Nachricht (Piped-Input / One-Shot-Argument)
     """
     global chat_history
 
-    # Handle resume functionality
     if resume_chat and mode:
-        selected_chat = show_chat_selection_menu(mode)
-        if selected_chat:
+        selected = show_chat_selection_menu(mode)
+        if selected:
             try:
                 chat_history.clear()
-                loaded_history = load_chat(selected_chat)
-                chat_history.extend(loaded_history)
-                ch.current_chat_file = selected_chat  # Track the loaded file
-                console.print(f"[green]✓ Chat restored ({len(chat_history)} messages)[/green]\n")
+                loaded = load_chat(selected)
+                chat_history.extend(loaded)
+                ch.current_chat_file = selected
+                console.print(f"[green]✓ Chat geladen ({len(chat_history)} Nachrichten)[/green]\n")
             except Exception as e:
-                console.print(f"[red]❌ Error loading chat: {str(e)}[/red]")
+                console.print(f"[red]❌ Fehler beim Laden: {e}[/red]")
                 return
         else:
-            # User chose to start a new chat
             ch.current_chat_file = None
             chat_history.clear()
     else:
-        # Starting fresh without resume
         ch.current_chat_file = None
         chat_history.clear()
 
     try:
-        # Process initial message if provided (e.g., from piped stdin)
         if initial_message:
-            console.print(f"[dim]📎 Processing piped input...[/dim]")
-            turn_handler(initial_message)
-            
-            # Try to reopen stdin to terminal for interactive mode
-            if not reopen_stdin_to_terminal():
-                # Can't go interactive (non-interactive environment or Windows native)
-                console.print("[dim]💡 Tip: Use -r to resume this chat later[/dim]")
-                return
-            
-            console.print("[dim]💬 Interactive mode enabled - you can ask follow-up questions[/dim]")
+            if not sys.stdin.isatty():
+                console.print("[dim]📎 Piped-Input wird verarbeitet...[/dim]")
+                turn_handler(initial_message)
+                if not reopen_stdin_to_terminal():
+                    console.print("[dim]💡 Tipp: Mit -r kannst du diesen Chat später fortsetzen[/dim]")
+                    return
+                console.print("[dim]💬 Interaktiver Modus — du kannst Folgefragen stellen[/dim]")
+            else:
+                turn_handler(initial_message)
 
         while True:
             userfrage = get_user_input()
+            if not userfrage:
+                continue
             if userfrage.lower() == "exit":
                 break
-
             turn_handler(userfrage)
+
     except KeyboardInterrupt:
-        # Save before exiting on Ctrl+C
         if mode and chat_history:
             save_chat(chat_history, mode, filepath=ch.current_chat_file)
-            console.print("\n[green]✓ Chat saved[/green]")
-        # Re-raise for global handler
+            console.print("\n[green]✓ Chat gespeichert[/green]")
         raise
     finally:
-        # Auto-save when exiting normally
         if mode and chat_history:
             save_chat(chat_history, mode, filepath=ch.current_chat_file)
-            console.print("[green]✓ Chat saved[/green]")
-        ch.current_chat_file = None  # Reset for next session
+            console.print("[green]✓ Chat gespeichert[/green]")
+        ch.current_chat_file = None
 
 
-def Websearch(userfrage):
-    model = config["Websearch"]
-    reasoning_effort = config["reasoning_effort"]["Websearch"]
-    chat_history.append({"role": "user", "content": userfrage})
-    input_messages = convert_to_responses_format(chat_history)
+# ── Config-Editor ─────────────────────────────────────────────────────────
+
+def show_setup_file() -> None:
+    """Öffnet die Config-Datei mit dem Standard-Editor."""
+    config_path = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "config.json")
+    try:
+        if currentOS == "Windows":
+            os.startfile(config_path)
+        elif currentOS == "Darwin":
+            subprocess.run(["open", config_path])
+        else:
+            if subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
+                subprocess.run(["nvim", config_path])
+            else:
+                subprocess.run(["xdg-open", config_path])
+    except Exception as e:
+        console.print(f"[red]❌ Fehler beim Öffnen: {e}[/red]")
+
+
+def edit_instructions(mode: str) -> None:
+    """Öffnet die Instruction-Datei eines Modus."""
+    instructions_dir = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "instructions")
+
+    mode_files = {
+        "normalchat": "normalchat.txt",
+        "codex": "codex.txt",
+        "email": "email.txt",
+        "email-advanced": "email_advanced.txt",
+        "email-pro": "email_pro.txt",
+        "translate": "translate.txt",
+    }
+
+    if mode.lower() not in mode_files:
+        console.print(f"[red]❌ Unbekannter Modus: {mode}[/red]")
+        console.print(f"[yellow]Verfügbar: {', '.join(sorted(mode_files.keys()))}[/yellow]")
+        return
+
+    instruction_file = os.path.join(instructions_dir, mode_files[mode.lower()])
+
+    if not os.path.exists(instruction_file):
+        console.print(f"[red]❌ Datei nicht gefunden: {instruction_file}[/red]")
+        return
 
     try:
-        with console.status(f"[bold green]{model} is Thinking...") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                tools=[{"type": "web_search"}],
-                instructions=config["instructions"]["Websearch"],
-                input=input_messages,
-            )
-        chat_history.append({"role": "assistant", "content": response.output_text})
-        markdown_text = response.output_text
-        markdown = Markdown(markdown_text)
-        copyline(response.output_text)
-        console.print(markdown)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-        # Remove user message from history if API call failed
-        chat_history.pop()
+        if currentOS == "Windows":
+            os.startfile(instruction_file)
+        elif currentOS == "Darwin":
+            subprocess.run(["open", instruction_file])
+        else:
+            if subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
+                subprocess.run(["nvim", instruction_file])
+            else:
+                subprocess.run(["xdg-open", instruction_file])
+        console.print(f"[green]✓ Instructions geöffnet: {mode}[/green]")
+    except Exception as e:
+        console.print(f"[red]❌ Fehler: {e}[/red]")
 
 
-def ITSecurty_Websearch():
-    model = config["ITSecurty_Websearch"]
-    reasoning_effort = config["reasoning_effort"]["Websearch"]
-    securityNewsPromt = config["securityNewsPromt"]
+# ── Main ──────────────────────────────────────────────────────────────────
 
-    try:
-        with console.status(f"[bold green]{model} is Thinking...") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                instructions=config["instructions"]["ITSecurityNews"],
-                tools=[
-                    {
-                        "type": "web_search",
-                        "filters": {"allowed_domains": config["security_domains"]},
-                    }
-                ],
-                tool_choice="auto",
-                include=["web_search_call.action.sources"],
-                input=f"{securityNewsPromt}",
-            )
-        message = response.output[-1]
-        markdown_text = message.content[0].text
-        markdown = Markdown(markdown_text)
-        console.print(markdown)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-
-
-def normalchat(userfrage):
-    model = config["normalchat"]
-    reasoning_effort = config["reasoning_effort"]["normalchat"]
-    chat_history.append({"role": "user", "content": userfrage})
-    input_messages = convert_to_responses_format(chat_history)
-
-    try:
-        with console.status(f"[bold green]{model} is Thinking... ") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                instructions=config["instructions"]["normalchat"],
-                input=input_messages,
-            )
-        chat_history.append({"role": "assistant", "content": response.output_text})
-        markdown_text = response.output_text
-        markdown = Markdown(markdown_text)
-        copyline(response.output_text)
-        console.print(markdown)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-        # Remove user message from history if API call failed
-        chat_history.pop()
-
-
-def mailkoregierer(userfrage):
-    model = config["email"]
-    reasoning_effort = config["reasoning_effort"]["email"]
-    try:
-        with console.status(f"[bold green]{model} is Thinking...") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                instructions=config["instructions"]["email"],
-                input=f"{userfrage}",
-            )
-        copyline(response.output_text)
-        print(response.output_text)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-
-
-def translate(userfrage):
-    model = config["translate"]
-    reasoning_effort = config["reasoning_effort"]["translate"]
-    try:
-        with console.status(f"[bold green]{model} is Thinking...") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                instructions=config["instructions"]["translate"],
-                input=f"{userfrage}",
-            )
-        copyline(response.output_text)
-        print(response.output_text)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-
-
-def codex(userfrage):
-    instruction_template = config["instructions"]["codex"]
-    final_instruction = instruction_template.format(
-        currentOS=currentOS, platforminfo=platforminfo
-    )
-    model = config["codex"]
-    reasoning_effort = config["reasoning_effort"]["codex"]
-
-    chat_history.append({"role": "user", "content": userfrage})
-    input_messages = convert_to_responses_format(chat_history)
-
-    try:
-        with console.status(f"[bold green]{model} is Thinking... ") as status:
-            response = client.responses.create(
-                model=model,
-                reasoning={"effort": reasoning_effort},
-                instructions=final_instruction,
-                input=input_messages,
-            )
-        chat_history.append({"role": "assistant", "content": response.output_text})
-        markdown_text = response.output_text
-        markdown = Markdown(markdown_text)
-        copyline(response.output_text)
-        console.print(markdown)
-    except (APIError, APIConnectionError, AuthenticationError, RateLimitError) as e:
-        handle_api_error(e)
-        # Remove user message from history if API call failed
-        chat_history.pop()
-
-
-def build_piped_message(question, stdin_content):
-    """Build a combined message from question and piped stdin content."""
-    return f"{question}\n\n```\n{stdin_content}\n```"
-
-
-def main():
-    # Read stdin if piped
+def main() -> None:
     stdin_content = read_stdin()
 
-    # Determine the question from various sources
-    # Priority: positional argument > mode argument (e.g., -c "question")
+    # Frage ermitteln
     question = args.question
-    if not question and isinstance(args.codex, str):
-        question = args.codex
-    if not question and isinstance(args.Websearch, str):
-        question = args.Websearch
-    if not question and isinstance(args.Mail, str):
-        question = args.Mail
-    if not question and isinstance(args.Translate, str):
-        question = args.Translate
+    for flag in (args.codex, args.mail, args.mail_advanced, args.mail_pro, args.translate):
+        if not question and isinstance(flag, str):
+            question = flag
 
-    # Validate: stdin requires a question for interactive modes (chat/codex/websearch)
-    # But Mail/Translate can work with stdin alone (one-shot modes)
+    # Validierung: Piped-Input ohne Frage? Nur Mail/Translate erlauben das
     if stdin_content and not question:
-        # Allow stdin without question for Mail and Translate
-        if not (args.Mail or args.Translate):
-            console.print("[red]❌ Error: When piping input, a question is required![/red]")
-            console.print("[yellow]Usage: cat file.txt | kit \"Your question here\"[/yellow]")
-            console.print("[yellow]       cat file.py | kit -c \"Explain this code\"[/yellow]")
-            console.print("[yellow]Note: Mail and Translate modes can use stdin without a question[/yellow]")
+        if not (args.mail or args.mail_advanced or args.mail_pro or args.translate):
+            console.print("[red]❌ Bei Piped-Input ist eine Frage erforderlich![/red]")
+            console.print("[yellow]Beispiel: cat file.txt | kit \"Zusammenfassen\"[/yellow]")
+            console.print("[yellow]Mail/Translate-Modi funktionieren auch ohne Frage.[/yellow]")
             sys.exit(1)
 
-    # Build initial message if stdin + question provided
+    # Initiale Nachricht (Piped-Input + Frage)
     initial_message = None
     if stdin_content and question:
         initial_message = build_piped_message(question, stdin_content)
 
+    # ── Routing ────────────────────────────────────────────────────────
+
     if args.init:
-        control = input("Reset configuration file to defaults? (y/n): ").lower()
-        if control == "y":
+        control = input("Config auf Werkseinstellungen zurücksetzen? (j/n): ").lower()
+        if control in ("j", "y", "ja"):
             init_config()
-            console.print("[green]✓ Configuration reset to defaults[/green]")
-            sys.exit(0)
+            console.print("[green]✓ Config zurückgesetzt[/green]")
         else:
-            console.print("[yellow]Configuration reset cancelled[/yellow]")
-            sys.exit(0)
+            console.print("[yellow]Abgebrochen[/yellow]")
+        sys.exit(0)
 
     elif args.edit_instructions:
         edit_instructions(args.edit_instructions)
         sys.exit(0)
 
-    elif args.Websearch:
-        if isinstance(args.Websearch, str) and not stdin_content:
-            # One-shot websearch without stdin
-            Websearch(args.Websearch)
-        else:
-            # Interactive mode (with or without initial piped message)
-            interactive_chat(Websearch, mode="Websearch", resume_chat=args.resume, initial_message=initial_message)
-
-    elif args.Mail:
-        if isinstance(args.Mail, str):
-            # User provided text directly
-            mailkoregierer(args.Mail)
-        elif stdin_content:
-            # Use piped stdin content
-            if question:
-                # Combine question with stdin content
-                combined_message = build_piped_message(question, stdin_content)
-                console.print("[green]✓ Processing piped input[/green]")
-                mailkoregierer(combined_message)
-            else:
-                # Just stdin without question
-                console.print("[green]✓ Processing piped input[/green]")
-                mailkoregierer(stdin_content)
-        else:
-            # Fallback to clipboard
-            userfrage = pasteline()
-            console.print("[green]✓ Clipboard read successfully[/green]")
-            mailkoregierer(userfrage)
-
-    elif args.Translate:
-        if isinstance(args.Translate, str):
-            # User provided text directly
-            translate(args.Translate)
-        elif stdin_content:
-            # Use piped stdin content
-            if question:
-                # Combine question with stdin content
-                combined_message = build_piped_message(question, stdin_content)
-                console.print("[green]✓ Processing piped input[/green]")
-                translate(combined_message)
-            else:
-                # Just stdin without question
-                console.print("[green]✓ Processing piped input[/green]")
-                translate(stdin_content)
-        else:
-            # Fallback to clipboard
-            userfrage = pasteline()
-            console.print("[green]✓ Clipboard read successfully[/green]")
-            translate(userfrage)
-
     elif args.setup:
         show_setup_file()
-        console.print("[bold green]✅ Configuration file opened[/bold green]")
-
-    elif args.ITSecurityNews:
-        ITSecurty_Websearch()
+        console.print("[bold green]✅ Config-Datei geöffnet[/bold green]")
 
     elif args.version:
         console.print(f"[bold cyan]🚀 Version:[/bold cyan] [green]{VERSION}[/green]")
-        console.print(f"[bold cyan]👨 Author:[/bold cyan] [yellow]{AUTHOR}[/yellow]")
-        console.print(f"[bold cyan]📜 License:[/bold cyan] [blue]{LICENSE}[/blue]")
-        console.print(f"[bold cyan]💻 OpenAI Library:[/bold cyan] [magenta]{OPENAI_VERSION}[/magenta]")
-        console.print(f"[bold cyan]🖥️ Description:[/bold cyan] [magenta]{DESCRIPTION}[/magenta]")
+        console.print(f"[bold cyan]👨 Autor:[/bold cyan] [yellow]{AUTHOR}[/yellow]")
+        console.print(f"[bold cyan]📜 Lizenz:[/bold cyan] [blue]{LICENSE}[/blue]")
+        console.print(f"[bold cyan]💻 Anthropic SDK:[/bold cyan] [magenta]{ANTHROPIC_VERSION}[/magenta]")
+        console.print(f"[bold cyan]🖥️ Beschreibung:[/bold cyan] [magenta]{DESCRIPTION}[/magenta]")
+
+    elif args.mail:
+        _run_mail("email", args.mail, stdin_content, question)
+
+    elif args.mail_advanced:
+        _run_mail("email_advanced", args.mail_advanced, stdin_content, question)
+
+    elif args.mail_pro:
+        _run_mail("email_pro", args.mail_pro, stdin_content, question)
+
+    elif args.translate:
+        if isinstance(args.translate, str):
+            translate(args.translate)
+        elif stdin_content:
+            console.print("[green]✓ Piped-Input wird verarbeitet[/green]")
+            content = build_piped_message(question, stdin_content) if question else stdin_content
+            translate(content)
+        else:
+            text = pasteline()
+            console.print("[green]✓ Aus Clipboard gelesen[/green]")
+            translate(text)
 
     elif args.codex:
         if isinstance(args.codex, str) and not stdin_content:
-            # One-shot codex without stdin
             codex(args.codex)
         else:
-            # Interactive mode (with or without initial piped message)
-            interactive_chat(codex, mode="codex", resume_chat=args.resume, initial_message=initial_message)
+            interactive_chat(codex, mode="codex", resume_chat=args.resume,
+                             initial_message=initial_message)
 
-    # If user doesn't provide arguments (or only question with stdin)
     else:
-        interactive_chat(normalchat, mode="normalchat", resume_chat=args.resume, initial_message=initial_message)
+        # Default: normalchat
+        msg = initial_message if initial_message else question
+        interactive_chat(normalchat, mode="normalchat", resume_chat=args.resume,
+                         initial_message=msg)
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        # Global Ctrl+C handler → Clean exit
-        # PyInstaller issue: Even print() can be interrupted
-        # Therefore: Exit only, no output
         try:
-            console.print("\n[yellow]Program terminated[/yellow]")
-        except:
+            console.print("\n[yellow]Programm beendet[/yellow]")
+        except Exception:
             pass
         finally:
-            os._exit(0)  # Force immediate exit without cleanup
+            os._exit(0)
