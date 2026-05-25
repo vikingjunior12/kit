@@ -317,7 +317,11 @@ def _call_api(mode: str, messages: list[dict], system: str) -> str:
     max_tokens = mode_cfg.get("max_tokens", 4096)
     reasoning_effort = mode_cfg.get("reasoning_effort", "none")
 
-    client = get_client(provider)
+    try:
+        client = get_client(provider)
+    except ValueError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        sys.exit(1)
 
     params = dict(
         model=model,
