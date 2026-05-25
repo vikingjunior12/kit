@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-KIterminal — Ein schlankes Terminal-KI-Tool für schnelle Aufgaben.
+KIterminal — Terminal-KI-Tool für schnelle Aufgaben.
 
-Multi-Provider: Anthropic (Claude) + DeepSeek (V4 Flash/Pro)
-Modi: normalchat, codex, mail (-m/-ma/-mp), translate (-t)
-Features: Pipe-Support, Clipboard, Chat-History, Config-Editor
+Multi-Provider: Anthropic + DeepSeek
+Modi: chat, codex, mail (-m/-ma/-mp), translate (-t)
+Features: Streaming, Pipe-Support, Clipboard, Chat-History
 """
 
 import anthropic
@@ -31,10 +31,7 @@ AUTHOR = "JLI-Software"
 VERSION = "0.9.1"
 LICENSE = "MIT"
 ANTHROPIC_VERSION = anthropic.__version__
-DESCRIPTION = (
-    "KIterminal — 🤖 Schlankes KI-CLI-Tool für schnelle Aufgaben. "
-    "Multi-Provider: Anthropic + DeepSeek."
-)
+DESCRIPTION = "KIterminal — Schlankes KI-CLI-Tool. Multi-Provider: Anthropic + DeepSeek."
 
 # ── CLI-Parser ────────────────────────────────────────────────────────────
 
@@ -43,14 +40,14 @@ parser = argparse.ArgumentParser(
     description=DESCRIPTION,
     epilog="""
 Beispiele:
-  kit                     Normaler Chat (default)
+  kit                     Chat (default)
   kit -c                  Codex Programmier-Assistent
   kit -c "Frage"          Codex One-Shot
   kit -m                  E-Mail-Korrektur (aus Clipboard)
   kit -m "Text"           E-Mail-Korrektur (direkt)
   kit -ma "Text"          E-Mail-Korrektur + Verbesserung
   kit -mp "Text"          Professioneller E-Mail-Rewrite
-  kit -t "Hello World"    Übersetzung DE↔EN
+  kit -t "Hello World"    Uebersetzung DE<->EN
   kit -r                  Chat fortsetzen
   kit -r -c               Codex-Chat fortsetzen
   kit --setup             Config bearbeiten
@@ -59,15 +56,15 @@ Beispiele:
 
 Piped Input:
   cat file.txt | kit "Zusammenfassen"
-  cat script.py | kit -c "Erklären"
+  cat script.py | kit -c "Erklaeren"
   cat email.txt | kit -m "Korrigieren"
-  cat doc.txt | kit -t "Übersetzen"
+  cat doc.txt | kit -t "Uebersetzen"
 
 Konfiguration:
   kit -e normalchat       Chat-Instructions bearbeiten
   kit -e codex            Codex-Instructions bearbeiten
   kit -e email            Mail-Instructions bearbeiten
-  kit -e translate        Übersetzungs-Instructions bearbeiten
+  kit -e translate        Uebersetzungs-Instructions bearbeiten
 
   Instruction-Dateien: ~/.config/KIterminal/instructions/
   Config-Datei:        ~/.config/KIterminal/config.json
@@ -96,7 +93,7 @@ text_proc = parser.add_argument_group("Textverarbeitung")
 text_proc.add_argument(
     "-t", "--translate",
     nargs="?", const=True, metavar="TEXT",
-    help="Übersetzung DE↔EN (Clipboard oder Text)",
+    help="Uebersetzung DE<->EN (Clipboard oder Text)",
 )
 text_proc.add_argument(
     "-m", "--mail",
@@ -128,15 +125,15 @@ chat_mgmt.add_argument(
 config_grp = parser.add_argument_group("Konfiguration")
 config_grp.add_argument(
     "-s", "--setup", action="store_true",
-    help="Config-Datei mit Editor öffnen",
+    help="Config-Datei mit Editor oeffnen",
 )
 config_grp.add_argument(
     "-i", "--init", action="store_true",
-    help="Config auf Werkseinstellungen zurücksetzen",
+    help="Config auf Werkseinstellungen zuruecksetzen",
 )
 config_grp.add_argument(
     "-e", "--edit-instructions", metavar="MODE",
-    help="Instructions für einen Modus bearbeiten "
+    help="Instructions fuer einen Modus bearbeiten "
          "(normalchat, codex, email, email-advanced, email-pro, translate)",
 )
 
@@ -148,7 +145,7 @@ info_grp.add_argument(
     help="Version & Info anzeigen",
 )
 
-# Positionales Argument (für Piped-Input + Frage)
+# Positionales Argument (fuer Piped-Input + Frage)
 parser.add_argument(
     "question", nargs="?", default=None,
     help="Frage (erforderlich bei Piped-Input)",
@@ -177,8 +174,8 @@ def _(event):
     event.current_buffer.validate_and_handle()
 
 
-def get_user_input(label: str = "💬") -> str:
-    """Benutzereingabe mit prompt_toolkit. Label kann Provider/Modell anzeigen."""
+def get_user_input(label: str = ">") -> str:
+    """Benutzereingabe mit prompt_toolkit."""
     try:
         return pt_prompt(
             HTML(f"<ansibrightcyan><b>{label} </b></ansibrightcyan>"),
@@ -214,7 +211,7 @@ def read_stdin() -> str | None:
 
 
 def reopen_stdin_to_terminal() -> bool:
-    """Öffnet stdin neu zum Terminal (nach Piped-Input)."""
+    """Oeffnet stdin neu zum Terminal (nach Piped-Input)."""
     try:
         if currentOS == "Windows" and not is_wsl():
             sys.stdin = open("CON", "r")
@@ -228,7 +225,7 @@ def reopen_stdin_to_terminal() -> bool:
 # ── Clipboard ─────────────────────────────────────────────────────────────
 
 def copyline(text: str) -> None:
-    """Text ins Clipboard kopieren."""
+    """Text ins Clipboard kopieren (silent fail)."""
     try:
         if is_termux():
             subprocess.run(["termux-clipboard-set"], input=text.encode(), check=True)
@@ -237,7 +234,7 @@ def copyline(text: str) -> None:
         else:
             pyperclip.copy(text)
     except Exception:
-        pass  # Silent fail — Clipboard ist optional
+        pass
 
 
 def pasteline() -> str:
@@ -257,40 +254,38 @@ def pasteline() -> str:
         else:
             return pyperclip.paste()
     except Exception as e:
-        console.print(f"[red]❌ Clipboard-Fehler: {e}[/red]")
+        console.print(f"[red]✗ Clipboard-Fehler: {e}[/red]")
         sys.exit(1)
 
 
 # ── API-Helfer ────────────────────────────────────────────────────────────
 
 def handle_api_error(e: Exception) -> None:
-    """Benutzerfreundliche Fehlermeldungen für API-Fehler."""
+    """Benutzerfreundliche Fehlermeldungen fuer API-Fehler."""
     if isinstance(e, anthropic.AuthenticationError):
-        console.print("[red]❌ Ungültiger API-Key![/red]")
-        console.print("Bitte prüfe deine Umgebungsvariable (ANTHROPIC_API_KEY / DEEPSEEK_API_KEY)")
+        console.print("[red]✗ Ungueltiger API-Key![/red]")
+        console.print("Pruefe ANTHROPIC_API_KEY / DEEPSEEK_API_KEY")
     elif isinstance(e, anthropic.APIConnectionError):
-        console.print("[red]❌ Keine Verbindung zur API![/red]")
-        console.print("Bitte prüfe deine Internetverbindung.")
+        console.print("[red]✗ Keine Verbindung zur API![/red]")
     elif isinstance(e, anthropic.RateLimitError):
-        console.print("[red]❌ Rate-Limit erreicht![/red]")
-        console.print("Bitte warte einen Moment.")
+        console.print("[red]✗ Rate-Limit erreicht – warte einen Moment[/red]")
     elif isinstance(e, anthropic.APIStatusError):
-        console.print(f"[red]❌ API-Fehler {e.status_code}: {e}[/red]")
+        console.print(f"[red]✗ API-Fehler {e.status_code}: {e}[/red]")
     else:
-        console.print(f"[red]❌ Unerwarteter Fehler: {e}[/red]")
+        console.print(f"[red]✗ Unerwarteter Fehler: {e}[/red]")
 
 
 def get_response_text(response) -> str:
-    """Extrahiert Text aus einer Anthropic-Response."""
+    """Extrahiert Text aus einer Anthropic-Response (nur non-streaming)."""
     if response.stop_reason == "refusal":
-        console.print("[yellow]⚠ Die KI hat die Anfrage abgelehnt.[/yellow]")
+        console.print("[yellow]! Anfrage abgelehnt[/yellow]")
         return ""
     text_blocks = [block.text for block in response.content if block.type == "text"]
     return "\n\n".join(text_blocks) if text_blocks else ""
 
 
 def build_effort_params(reasoning_effort: str) -> dict:
-    """Erstellt thinking/output_config-Parameter für Adaptive Thinking."""
+    """Erstellt thinking/output_config-Parameter fuer Adaptive Thinking."""
     if reasoning_effort in ("low", "medium", "high"):
         return {
             "thinking": {"type": "adaptive"},
@@ -308,11 +303,8 @@ def build_piped_message(question: str, stdin_content: str) -> str:
 
 def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True) -> str:
     """
-    Führt einen API-Call für den angegebenen Modus aus.
-
-    Nutzt den in der Config eingestellten Provider + Modell.
-    Bei stream=True wird die Antwort live im Terminal ausgegeben.
-    Gibt den kompletten Antwort-Text zurück.
+    Fuehrt einen API-Call fuer den angegebenen Modus aus.
+    Bei stream=True wird die Antwort live mit Markdown-Rendering ausgegeben.
     """
     mode_cfg = get_mode_config(config, mode)
     provider = mode_cfg.get("provider", "anthropic")
@@ -323,7 +315,7 @@ def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True)
     try:
         client = get_client(provider)
     except ValueError as e:
-        console.print(f"[red]❌ {e}[/red]")
+        console.print(f"[red]✗ {e}[/red]")
         sys.exit(1)
 
     params = dict(
@@ -336,14 +328,22 @@ def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True)
 
     if stream:
         full_text: list[str] = []
-        with Live(Markdown(""), console=console, refresh_per_second=10, vertical_overflow="visible") as live:
-            with client.messages.stream(**params) as s:
-                for text in s.text_stream:
-                    full_text.append(text)
-                    live.update(Markdown("".join(full_text)))
+        try:
+            with Live(Markdown(""), console=console, refresh_per_second=10,
+                      vertical_overflow="visible") as live:
+                with client.messages.stream(**params) as s:
+                    for text in s.text_stream:
+                        full_text.append(text)
+                        live.update(Markdown("".join(full_text)))
+        except KeyboardInterrupt:
+            # Sauberer Abbruch – Live-Display wird automatisch geschlossen,
+            # teilweise gestreamter Text wird trotzdem gespeichert
+            if full_text:
+                console.print()
+            raise
         return "".join(full_text)
     else:
-        with console.status(f"[bold green]{get_provider_name(provider)}/{model} denkt nach..."):
+        with console.status(f"[bold green]{get_provider_name(provider)}/{model} …[/bold green]"):
             response = client.messages.create(**params)
         return get_response_text(response)
 
@@ -351,7 +351,6 @@ def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True)
 def normalchat(userfrage: str) -> None:
     """Normaler Chat-Modus (interaktiv)."""
     chat_history.append({"role": "user", "content": userfrage})
-
     try:
         response_text = _call_api(
             "normalchat",
@@ -372,7 +371,6 @@ def codex(userfrage: str) -> None:
         currentOS=currentOS, platforminfo=platforminfo
     )
     chat_history.append({"role": "user", "content": userfrage})
-
     try:
         response_text = _call_api(
             "codex",
@@ -392,7 +390,7 @@ def mail_correct(userfrage: str, mode: str = "email") -> None:
     try:
         response_text = _call_api(
             mode,
-            messages=[{"role": "user", "content": f"Proofread and correct this email:\n\n{userfrage}"}],
+            messages=[{"role": "user", "content": f"Proofread this email:\n\n{userfrage}"}],
             system=config["instructions"][mode],
             stream=False,
         )
@@ -404,25 +402,25 @@ def mail_correct(userfrage: str, mode: str = "email") -> None:
 
 
 def _run_mail(mode: str, args_flag, stdin_content: str | None, question: str | None) -> None:
-    """Gemeinsame Routing-Logik für alle Mail-Modi (-m, -ma, -mp)."""
+    """Gemeinsame Routing-Logik fuer alle Mail-Modi (-m, -ma, -mp)."""
     if isinstance(args_flag, str):
         mail_correct(args_flag, mode=mode)
     elif stdin_content:
         content = build_piped_message(question, stdin_content) if question else stdin_content
-        console.print("[green]✓ Piped-Input wird verarbeitet[/green]")
+        console.print("[green]Piped-Input wird verarbeitet[/green]")
         mail_correct(content, mode=mode)
     else:
         text = pasteline()
-        console.print("[green]✓ Aus Clipboard gelesen[/green]")
+        console.print("[green]Aus Clipboard gelesen[/green]")
         mail_correct(text, mode=mode)
 
 
 def translate(userfrage: str) -> None:
-    """Übersetzung DE↔EN (One-Shot)."""
+    """Uebersetzung DE<->EN (One-Shot)."""
     try:
         response_text = _call_api(
             "translate",
-            messages=[{"role": "user", "content": f"Translate this text:\n\n{userfrage}"}],
+            messages=[{"role": "user", "content": f"Translate:\n\n{userfrage}"}],
             system=config["instructions"]["translate"],
             stream=False,
         )
@@ -438,24 +436,16 @@ def translate(userfrage: str) -> None:
 def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
                      initial_message: str = None) -> None:
     """
-    Interaktiver Chat mit Resume- und Auto-Save-Funktionalität.
-
-    Args:
-        turn_handler: Funktion für jeden Chat-Turn (normalchat/codex)
-        mode: Chat-Modus für Speicherung (normalchat, codex)
-        resume_chat: Vorherigen Chat fortsetzen?
-        initial_message: Optionale erste Nachricht (Piped-Input / One-Shot-Argument)
+    Interaktiver Chat mit Resume- und Auto-Save-Funktionalitaet.
     """
     global chat_history
 
-    # ── Prompt-Label aus Config ────────────────────────────────────────
-    if mode:
-        mode_cfg = get_mode_config(config, mode)
-        provider = mode_cfg.get("provider", "?")
-        model_short = mode_cfg.get("model", "?").replace("claude-", "").replace("deepseek-", "")
-        prompt_label = f"{provider[:4]}/{model_short} 💬"
-    else:
-        prompt_label = "💬"
+    # ── Mode-Konfig einmal laden ───────────────────────────────────────
+    mode_cfg = get_mode_config(config, mode) if mode else {}
+    provider_name = mode_cfg.get("provider", "?")
+    model_name = mode_cfg.get("model", "?")
+    model_short = model_name.replace("claude-", "").replace("deepseek-", "")
+    prompt_label = f"{provider_name[:4]}/{model_short} >" if mode else ">"
 
     if resume_chat and mode:
         selected = show_chat_selection_menu(mode)
@@ -465,9 +455,9 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
                 loaded = load_chat(selected)
                 chat_history.extend(loaded)
                 ch.current_chat_file = selected
-                console.print(f"[green]✓ Chat geladen ({len(chat_history)} Nachrichten)[/green]")
+                console.print(f"[green]Chat geladen ({len(chat_history)} Nachrichten)[/green]")
             except Exception as e:
-                console.print(f"[red]❌ Fehler beim Laden: {e}[/red]")
+                console.print(f"[red]✗ Fehler beim Laden: {e}[/red]")
                 return
         else:
             ch.current_chat_file = None
@@ -478,24 +468,22 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
 
     # ── Startup-Banner ─────────────────────────────────────────────────
     if mode and not initial_message:
-        mode_cfg = get_mode_config(config, mode)
-        provider = get_provider_name(mode_cfg.get("provider", "anthropic"))
-        model = mode_cfg.get("model", "?")
+        provider_display = get_provider_name(provider_name)
         mode_names = {"normalchat": "Chat", "codex": "Codex"}
         mode_display = mode_names.get(mode, mode)
         console.print(
-            f"[dim]kit v{VERSION} · {provider} · {model} · Modus: {mode_display}[/dim]"
+            f"[dim]kit v{VERSION}  ·  {provider_display}  ·  {model_name}  ·  {mode_display}[/dim]"
         )
 
     try:
         if initial_message:
             if not sys.stdin.isatty():
-                console.print("[dim]📎 Piped-Input wird verarbeitet...[/dim]")
+                console.print("[dim]Piped-Input wird verarbeitet ...[/dim]")
                 turn_handler(initial_message)
                 if not reopen_stdin_to_terminal():
-                    console.print("[dim]💡 Tipp: Mit -r kannst du diesen Chat später fortsetzen[/dim]")
+                    console.print("[dim]Tipp: Mit -r kannst du diesen Chat spaeter fortsetzen[/dim]")
                     return
-                console.print(f"[dim]💬 Interaktiver Modus — {prompt_label}[/dim]")
+                console.print(f"[dim]Interaktiver Modus  —  {prompt_label}[/dim]")
             else:
                 turn_handler(initial_message)
 
@@ -508,73 +496,59 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
             turn_handler(userfrage)
 
     except KeyboardInterrupt:
+        console.print()
         if mode and chat_history:
             save_chat(chat_history, mode, filepath=ch.current_chat_file)
-            console.print("\n[green]✓ Chat gespeichert[/green]")
         raise
     finally:
         if mode and chat_history:
             save_chat(chat_history, mode, filepath=ch.current_chat_file)
-            console.print("[green]✓ Chat gespeichert[/green]")
+            console.print("[dim]Chat gespeichert[/dim]")
         ch.current_chat_file = None
 
 
 # ── Config-Editor ─────────────────────────────────────────────────────────
 
-def show_setup_file() -> None:
-    """Öffnet die Config-Datei mit dem Standard-Editor."""
-    config_path = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "config.json")
+def _open_with_editor(filepath: str, success_msg: str) -> None:
+    """Oeffnet eine Datei mit dem System-Editor."""
     try:
         if currentOS == "Windows":
-            os.startfile(config_path)
+            os.startfile(filepath)
         elif currentOS == "Darwin":
-            subprocess.run(["open", config_path])
+            subprocess.run(["open", filepath])
         else:
             if subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
-                subprocess.run(["nvim", config_path])
+                subprocess.run(["nvim", filepath])
             else:
-                subprocess.run(["xdg-open", config_path])
+                subprocess.run(["xdg-open", filepath])
+        console.print(f"[green]{success_msg}[/green]")
     except Exception as e:
-        console.print(f"[red]❌ Fehler beim Öffnen: {e}[/red]")
+        console.print(f"[red]✗ Fehler beim Oeffnen: {e}[/red]")
+
+
+def show_setup_file() -> None:
+    """Oeffnet die Config-Datei."""
+    config_path = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "config.json")
+    _open_with_editor(config_path, "Config-Datei geoeffnet")
 
 
 def edit_instructions(mode: str) -> None:
-    """Öffnet die Instruction-Datei eines Modus."""
+    """Oeffnet die Instruction-Datei eines Modus."""
     instructions_dir = os.path.join(os.path.expanduser("~"), ".config", "KIterminal", "instructions")
-
     mode_files = {
-        "normalchat": "normalchat.txt",
-        "codex": "codex.txt",
-        "email": "email.txt",
-        "email-advanced": "email_advanced.txt",
-        "email-pro": "email_pro.txt",
-        "translate": "translate.txt",
+        "normalchat": "normalchat.txt", "codex": "codex.txt",
+        "email": "email.txt", "email-advanced": "email_advanced.txt",
+        "email-pro": "email_pro.txt", "translate": "translate.txt",
     }
-
     if mode.lower() not in mode_files:
-        console.print(f"[red]❌ Unbekannter Modus: {mode}[/red]")
-        console.print(f"[yellow]Verfügbar: {', '.join(sorted(mode_files.keys()))}[/yellow]")
+        console.print(f"[red]✗ Unbekannter Modus: {mode}[/red]")
+        console.print(f"[yellow]Verfuegbar: {', '.join(sorted(mode_files.keys()))}[/yellow]")
         return
-
     instruction_file = os.path.join(instructions_dir, mode_files[mode.lower()])
-
     if not os.path.exists(instruction_file):
-        console.print(f"[red]❌ Datei nicht gefunden: {instruction_file}[/red]")
+        console.print(f"[red]✗ Datei nicht gefunden: {instruction_file}[/red]")
         return
-
-    try:
-        if currentOS == "Windows":
-            os.startfile(instruction_file)
-        elif currentOS == "Darwin":
-            subprocess.run(["open", instruction_file])
-        else:
-            if subprocess.run(["which", "nvim"], capture_output=True).returncode == 0:
-                subprocess.run(["nvim", instruction_file])
-            else:
-                subprocess.run(["xdg-open", instruction_file])
-        console.print(f"[green]✓ Instructions geöffnet: {mode}[/green]")
-    except Exception as e:
-        console.print(f"[red]❌ Fehler: {e}[/red]")
+    _open_with_editor(instruction_file, f"Instructions geoeffnet: {mode}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
@@ -582,21 +556,20 @@ def edit_instructions(mode: str) -> None:
 def main() -> None:
     stdin_content = read_stdin()
 
-    # Frage ermitteln
+    # Frage ermitteln (positional > mode-argument)
     question = args.question
     for flag in (args.codex, args.mail, args.mail_advanced, args.mail_pro, args.translate):
         if not question and isinstance(flag, str):
             question = flag
 
-    # Validierung: Piped-Input ohne Frage? Nur Mail/Translate erlauben das
+    # Piped-Input ohne Frage: nur Mail/Translate erlauben
     if stdin_content and not question:
         if not (args.mail or args.mail_advanced or args.mail_pro or args.translate):
-            console.print("[red]❌ Bei Piped-Input ist eine Frage erforderlich![/red]")
+            console.print("[red]✗ Bei Piped-Input ist eine Frage erforderlich![/red]")
             console.print("[yellow]Beispiel: cat file.txt | kit \"Zusammenfassen\"[/yellow]")
-            console.print("[yellow]Mail/Translate-Modi funktionieren auch ohne Frage.[/yellow]")
+            console.print("[yellow]Mail/Translate funktionieren auch ohne Frage.[/yellow]")
             sys.exit(1)
 
-    # Initiale Nachricht (Piped-Input + Frage)
     initial_message = None
     if stdin_content and question:
         initial_message = build_piped_message(question, stdin_content)
@@ -604,10 +577,10 @@ def main() -> None:
     # ── Routing ────────────────────────────────────────────────────────
 
     if args.init:
-        control = input("Config auf Werkseinstellungen zurücksetzen? (j/n): ").lower()
+        control = input("Config auf Werkseinstellungen zuruecksetzen? (j/n): ").lower()
         if control in ("j", "y", "ja"):
             init_config()
-            console.print("[green]✓ Config zurückgesetzt[/green]")
+            console.print("[green]Config zurueckgesetzt[/green]")
         else:
             console.print("[yellow]Abgebrochen[/yellow]")
         sys.exit(0)
@@ -618,14 +591,13 @@ def main() -> None:
 
     elif args.setup:
         show_setup_file()
-        console.print("[bold green]✅ Config-Datei geöffnet[/bold green]")
 
     elif args.version:
-        console.print(f"[bold cyan]🚀 Version:[/bold cyan] [green]{VERSION}[/green]")
-        console.print(f"[bold cyan]👨 Autor:[/bold cyan] [yellow]{AUTHOR}[/yellow]")
-        console.print(f"[bold cyan]📜 Lizenz:[/bold cyan] [blue]{LICENSE}[/blue]")
-        console.print(f"[bold cyan]💻 Anthropic SDK:[/bold cyan] [magenta]{ANTHROPIC_VERSION}[/magenta]")
-        console.print(f"[bold cyan]🖥️ Beschreibung:[/bold cyan] [magenta]{DESCRIPTION}[/magenta]")
+        console.print(f"[bold cyan]Version:[/bold cyan]       [green]{VERSION}[/green]")
+        console.print(f"[bold cyan]Autor:[/bold cyan]        [yellow]{AUTHOR}[/yellow]")
+        console.print(f"[bold cyan]Lizenz:[/bold cyan]        [blue]{LICENSE}[/blue]")
+        console.print(f"[bold cyan]SDK:[/bold cyan]           [magenta]anthropic {ANTHROPIC_VERSION}[/magenta]")
+        console.print(f"[bold cyan]Beschreibung:[/bold cyan]  [magenta]{DESCRIPTION}[/magenta]")
 
     elif args.mail:
         _run_mail("email", args.mail, stdin_content, question)
@@ -640,12 +612,12 @@ def main() -> None:
         if isinstance(args.translate, str):
             translate(args.translate)
         elif stdin_content:
-            console.print("[green]✓ Piped-Input wird verarbeitet[/green]")
+            console.print("[green]Piped-Input wird verarbeitet[/green]")
             content = build_piped_message(question, stdin_content) if question else stdin_content
             translate(content)
         else:
             text = pasteline()
-            console.print("[green]✓ Aus Clipboard gelesen[/green]")
+            console.print("[green]Aus Clipboard gelesen[/green]")
             translate(text)
 
     elif args.codex:
@@ -656,7 +628,6 @@ def main() -> None:
                              initial_message=initial_message)
 
     else:
-        # Default: normalchat
         msg = initial_message if initial_message else question
         interactive_chat(normalchat, mode="normalchat", resume_chat=args.resume,
                          initial_message=msg)
@@ -666,9 +637,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        try:
-            console.print("\n[yellow]Programm beendet[/yellow]")
-        except Exception:
-            pass
-        finally:
-            os._exit(0)
+        console.print("\n[yellow]Beendet[/yellow]")
+        os._exit(0)
