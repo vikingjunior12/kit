@@ -5,9 +5,22 @@ Alle nennenswerten Änderungen an KIterminal (kit) werden in dieser Datei dokume
 ## [0.9.1] — 2026-05-25
 
 ### Hinzugefügt
-- **Streaming-Output:** Antworten erscheinen jetzt live Wort-für-Wort im Terminal (statt auf einmal nach Fertigstellung)
-- **Startup-Banner:** Beim Start wird Provider, Modell und Version angezeigt (`kit v0.9.1 · DeepSeek · deepseek-v4-flash · Modus: Chat`)
-- **Dynamischer Prompt:** Der Prompt zeigt jetzt den aktiven Provider und das Modell (`deep/v4-flash 💬` oder `anth/sonnet-4-6 💬`)
+- **Streaming-Output:** Antworten erscheinen live im Terminal mit Rich `Live`+`Markdown`-Rendering
+- **Startup-Banner:** Beim Start wird Provider, Modell und Version angezeigt
+- **Dynamischer Prompt:** Prompt zeigt aktiven Provider + Modell (`deep/v4-flash 💬`)
+- **`[project.scripts]`:** `kit = "kit:main"` → `pipx install .` macht `kit` global
+
+### Gefixt
+- **Markdown-Rendering:** Streaming nutzt jetzt `rich.live.Live` mit `rich.markdown.Markdown` — Tabellen, Code-Blocks, Listen werden live gerendert
+- **Runtime-Deps:** `rich`, `pyperclip`, `prompt-toolkit` nach `[project].dependencies` verschoben (waren fälschlich in `[dependency-groups].dev` → `pipx` hat sie nicht installiert)
+- **Paket-Struktur:** Flache `.py`-Dateien → `kit/`-Paket mit `__init__.py` (pipx braucht Packages, nicht lose Module)
+- **Python-Version:** `requires-python` auf `<4.0` gelockert (CachyOS hat 3.14)
+
+### Lessons Learned
+- **`pipx` installiert nur `[project].dependencies`** — Runtime-Deps gehören NICHT in `[dependency-groups].dev`
+- **`pipx` braucht Python-Packages** (Verzeichnis mit `__init__.py`), keine losen `.py`-Module
+- **`[project.scripts]` Entry-Point** muss auf `paket:funktion` zeigen, nicht auf lockere Datei
+- **Streaming + Markdown** kombinierbar via `rich.live.Live(Markdown(text))` — kein Trade-off nötig
 
 ### Geändert
 - Chat-Modi (normalchat, codex) streamen jetzt live; Mail/Translate bleiben bei One-Shot ohne Stream

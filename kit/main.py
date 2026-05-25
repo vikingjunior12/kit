@@ -15,6 +15,7 @@ import subprocess
 import os
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.live import Live
 from rich.prompt import Prompt
 from prompt_toolkit import prompt as pt_prompt
 from prompt_toolkit.formatted_text import HTML
@@ -335,11 +336,11 @@ def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True)
 
     if stream:
         full_text: list[str] = []
-        with client.messages.stream(**params) as s:
-            for text in s.text_stream:
-                console.print(text, end="", highlight=False)
-                full_text.append(text)
-        console.print()  # Abschliessender Zeilenumbruch
+        with Live(Markdown(""), console=console, refresh_per_second=10, vertical_overflow="visible") as live:
+            with client.messages.stream(**params) as s:
+                for text in s.text_stream:
+                    full_text.append(text)
+                    live.update(Markdown("".join(full_text)))
         return "".join(full_text)
     else:
         with console.status(f"[bold green]{get_provider_name(provider)}/{model} denkt nach..."):
