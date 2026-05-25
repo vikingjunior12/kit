@@ -27,7 +27,7 @@ import chat_history as ch
 from providers import get_client, get_provider_name
 
 AUTHOR = "JLI-Software"
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 LICENSE = "MIT"
 ANTHROPIC_VERSION = anthropic.__version__
 DESCRIPTION = (
@@ -176,11 +176,11 @@ def _(event):
     event.current_buffer.validate_and_handle()
 
 
-def get_user_input() -> str:
-    """Benutzereingabe mit prompt_toolkit."""
+def get_user_input(label: str = "💬") -> str:
+    """Benutzereingabe mit prompt_toolkit. Label kann Provider/Modell anzeigen."""
     try:
         return pt_prompt(
-            HTML("<ansibrightcyan><b>💬 </b></ansibrightcyan>"),
+            HTML(f"<ansibrightcyan><b>{label} </b></ansibrightcyan>"),
             multiline=False,
             key_bindings=kb,
         ).strip()
@@ -305,11 +305,13 @@ def build_piped_message(question: str, stdin_content: str) -> str:
 
 # ── Chat-Funktionen ───────────────────────────────────────────────────────
 
-def _call_api(mode: str, messages: list[dict], system: str) -> str:
+def _call_api(mode: str, messages: list[dict], system: str, stream: bool = True) -> str:
     """
     Führt einen API-Call für den angegebenen Modus aus.
 
     Nutzt den in der Config eingestellten Provider + Modell.
+    Bei stream=True wird die Antwort live im Terminal ausgegeben.
+    Gibt den kompletten Antwort-Text zurück.
     """
     mode_cfg = get_mode_config(config, mode)
     provider = mode_cfg.get("provider", "anthropic")
@@ -331,11 +333,18 @@ def _call_api(mode: str, messages: list[dict], system: str) -> str:
         **build_effort_params(reasoning_effort),
     )
 
-    status_text = f"[bold green]{get_provider_name(provider)}/{model} denkt nach..."
-    with console.status(status_text):
-        response = client.messages.create(**params)
-
-    return get_response_text(response)
+    if stream:
+        full_text: list[str] = []
+        with client.messages.stream(**params) as s:
+            for text in s.text_stream:
+                console.print(text, end="", highlight=False)
+                full_text.append(text)
+        console.print()  # Abschliessender Zeilenumbruch
+        return "".join(full_text)
+    else:
+        with console.status(f"[bold green]{get_provider_name(provider)}/{model} denkt nach..."):
+            response = client.messages.create(**params)
+        return get_response_text(response)
 
 
 def normalchat(userfrage: str) -> None:
@@ -350,7 +359,6 @@ def normalchat(userfrage: str) -> None:
         )
         chat_history.append({"role": "assistant", "content": response_text})
         copyline(response_text)
-        console.print(Markdown(response_text))
     except (anthropic.APIConnectionError, anthropic.AuthenticationError,
             anthropic.RateLimitError, anthropic.APIStatusError) as e:
         handle_api_error(e)
@@ -372,7 +380,6 @@ def codex(userfrage: str) -> None:
         )
         chat_history.append({"role": "assistant", "content": response_text})
         copyline(response_text)
-        console.print(Markdown(response_text))
     except (anthropic.APIConnectionError, anthropic.AuthenticationError,
             anthropic.RateLimitError, anthropic.APIStatusError) as e:
         handle_api_error(e)
@@ -386,6 +393,7 @@ def mail_correct(userfrage: str, mode: str = "email") -> None:
             mode,
             messages=[{"role": "user", "content": f"Proofread and correct this email:\n\n{userfrage}"}],
             system=config["instructions"][mode],
+            stream=False,
         )
         copyline(response_text)
         print(response_text)
@@ -415,6 +423,7 @@ def translate(userfrage: str) -> None:
             "translate",
             messages=[{"role": "user", "content": f"Translate this text:\n\n{userfrage}"}],
             system=config["instructions"]["translate"],
+            stream=False,
         )
         copyline(response_text)
         print(response_text)
@@ -438,6 +447,15 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
     """
     global chat_history
 
+    # ── Prompt-Label aus Config ────────────────────────────────────────
+    if mode:
+        mode_cfg = get_mode_config(config, mode)
+        provider = mode_cfg.get("provider", "?")
+        model_short = mode_cfg.get("model", "?").replace("claude-", "").replace("deepseek-", "")
+        prompt_label = f"{provider[:4]}/{model_short} 💬"
+    else:
+        prompt_label = "💬"
+
     if resume_chat and mode:
         selected = show_chat_selection_menu(mode)
         if selected:
@@ -446,7 +464,7 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
                 loaded = load_chat(selected)
                 chat_history.extend(loaded)
                 ch.current_chat_file = selected
-                console.print(f"[green]✓ Chat geladen ({len(chat_history)} Nachrichten)[/green]\n")
+                console.print(f"[green]✓ Chat geladen ({len(chat_history)} Nachrichten)[/green]")
             except Exception as e:
                 console.print(f"[red]❌ Fehler beim Laden: {e}[/red]")
                 return
@@ -457,6 +475,17 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
         ch.current_chat_file = None
         chat_history.clear()
 
+    # ── Startup-Banner ─────────────────────────────────────────────────
+    if mode and not initial_message:
+        mode_cfg = get_mode_config(config, mode)
+        provider = get_provider_name(mode_cfg.get("provider", "anthropic"))
+        model = mode_cfg.get("model", "?")
+        mode_names = {"normalchat": "Chat", "codex": "Codex"}
+        mode_display = mode_names.get(mode, mode)
+        console.print(
+            f"[dim]kit v{VERSION} · {provider} · {model} · Modus: {mode_display}[/dim]"
+        )
+
     try:
         if initial_message:
             if not sys.stdin.isatty():
@@ -465,12 +494,12 @@ def interactive_chat(turn_handler, mode: str = None, resume_chat: bool = False,
                 if not reopen_stdin_to_terminal():
                     console.print("[dim]💡 Tipp: Mit -r kannst du diesen Chat später fortsetzen[/dim]")
                     return
-                console.print("[dim]💬 Interaktiver Modus — du kannst Folgefragen stellen[/dim]")
+                console.print(f"[dim]💬 Interaktiver Modus — {prompt_label}[/dim]")
             else:
                 turn_handler(initial_message)
 
         while True:
-            userfrage = get_user_input()
+            userfrage = get_user_input(prompt_label)
             if not userfrage:
                 continue
             if userfrage.lower() == "exit":

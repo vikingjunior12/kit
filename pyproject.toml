@@ -1,7 +1,7 @@
 [project]
 name = "kit"
-version = "0.9.0"
-description = "KIterminal — Schlankes CLI-Tool für KI-Aufgaben. Multi-Provider: Anthropic Claude + DeepSeek V4."
+version = "0.9.1"
+description = "KIterminal — Schlankes KI-CLI-Tool mit Multi-Provider-Support (Anthropic + DeepSeek). Live-Streaming, Pipe-Support, Clipboard."
 authors = [
     {name = "JLI-Software"}
 ]
@@ -9,8 +9,11 @@ license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.13,<3.15"
 dependencies = [
-    "anthropic (>=0.83.0,<0.84.0)"
+    "anthropic (>=0.83.0,<1.0.0)"
 ]
+
+[project.scripts]
+kit = "kit:main"
 
 
 [build-system]
