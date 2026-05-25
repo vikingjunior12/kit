@@ -21,10 +21,10 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 import pyperclip
 
-from config import loadconfig, init_config, get_mode_config
-from chat_history import save_chat, load_chat, show_chat_selection_menu
-import chat_history as ch
-from providers import get_client, get_provider_name
+from kit.config import loadconfig, init_config, get_mode_config
+from kit.chat_history import save_chat, load_chat, show_chat_selection_menu
+from kit import chat_history as ch
+from kit.providers import get_client, get_provider_name
 
 AUTHOR = "JLI-Software"
 VERSION = "0.9.1"

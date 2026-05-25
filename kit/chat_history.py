@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt
-from config import loadconfig
+from kit.config import loadconfig
 # Globale Variable: Trackt den aktuell geladenen Chat-File
 # Wird gesetzt wenn ein Chat fortgesetzt wird, sonst None
 current_chat_file = None
